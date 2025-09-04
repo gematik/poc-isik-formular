@@ -123,11 +123,9 @@ el('btnClear').onclick = () => {
   try {
     // Unterstützte Parameter:
     // q, questionnaire, questionnaireUrl  -> komplette FHIR-URL
-    // fv, fhirVersion                      -> 'R4' (Default) / 'R5'
     // (optional) base + id                 -> FHIR-Basis & Ressource-ID
 
     const qUrl = getParam('q', 'questionnaire', 'questionnaireUrl');
-    const fvParam = (getParam('fv', 'fhirVersion') || 'R4').toUpperCase();
     const base = getParam('base');
     const id = getParam('id');
 
