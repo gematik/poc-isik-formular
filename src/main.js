@@ -53,6 +53,29 @@ function renderQuestionnaire(q) {
 const el = (id) => document.getElementById(id);
 const status = (msg, cls) => { const s = el('status'); s.className = cls||''; s.textContent = msg||''; };
 
+// Persistente Eingabefelder (über Seiten-Reload hinweg)
+const STORAGE_PREFIX = 'persist:';
+function initPersistentInput(id) {
+  const input = el(id);
+  if (!input) return;
+  const key = STORAGE_PREFIX + id;
+  const saved = localStorage.getItem(key);
+  if (saved !== null) input.value = saved;
+  input.addEventListener('input', () => {
+    try { localStorage.setItem(key, input.value); } catch {}
+  });
+}
+
+function setAndPersist(id, value) {
+  const input = el(id);
+  if (!input) return;
+  input.value = value;
+  try { localStorage.setItem(STORAGE_PREFIX + id, value); } catch {}
+}
+
+// Felder initialisieren
+['fhirUrl','fhirBase','qId'].forEach(initPersistentInput);
+
 async function loadQuestionnaireFromUrl(url) {
   status('Lade Questionnaire von URL …');
   const res = await fetch(url, { headers: { 'Accept': 'application/fhir+json' } });
@@ -143,8 +166,8 @@ el('btnClear').onclick = () => {
     if (qUrl) {
       hideLeftPanelAndExpandMain();
       const q = await loadQuestionnaireFromUrl(qUrl);
-      // UI spiegeln (optional, stört sonst nicht):
-      el('fhirUrl') && (el('fhirUrl').value = qUrl);
+      // UI spiegeln & persistieren
+      if (el('fhirUrl')) setAndPersist('fhirUrl', qUrl);
       el('jsonArea') && (el('jsonArea').value = JSON.stringify(q, null, 2));
       // Classic-API nutzt intern R4/R5 im convert; hier Beispiel R4:
       renderQuestionnaire(q);
@@ -155,8 +178,8 @@ el('btnClear').onclick = () => {
     if (base && id) {
       hideLeftPanelAndExpandMain();
       const q = await loadQuestionnaireFromServer(base, id);
-      el('fhirBase') && (el('fhirBase').value = base);
-      el('qId') && (el('qId').value = id);
+      if (el('fhirBase')) setAndPersist('fhirBase', base);
+      if (el('qId')) setAndPersist('qId', id);
       el('jsonArea') && (el('jsonArea').value = JSON.stringify(q, null, 2));
       renderQuestionnaire(q);
       return;
