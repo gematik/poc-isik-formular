@@ -8,10 +8,6 @@ import 'lforms/dist/lforms/fhir/R4/lformsFHIR.min.js';
 import { UcumLhcUtils } from '@lhncbc/ucum-lhc';
 window.UcumLhcUtils = UcumLhcUtils;
 
-// Sanity Checks
-console.log('Zone present?', typeof window.Zone !== 'undefined');
-console.log('WebComponent registered?', !!customElements.get('lhc-forms'));
-console.log('UcumLhcUtils?', typeof window.UcumLhcUtils);
 
 function getParam(...names) {
   const sp = new URLSearchParams(window.location.search);
@@ -52,6 +48,31 @@ function renderQuestionnaire(q) {
 
 const el = (id) => document.getElementById(id);
 const status = (msg, cls) => { const s = el('status'); s.className = cls||''; s.textContent = msg||''; };
+
+// --- UI Helpers -----------------------------------------------------------
+function getUiValues() {
+  const fhirUrl = el('fhirUrl')?.value?.trim() || '';
+  const fhirBase = el('fhirBase')?.value?.trim() || '';
+  const qId = el('qId')?.value?.trim() || '';
+  const prepopBase = el('prepopBase')?.value?.trim() || '';
+  const ids = {
+    patient: el('patientId')?.value?.trim() || undefined,
+    encounter: el('encounterId')?.value?.trim() || undefined,
+    user: el('userId')?.value?.trim() || undefined,
+  };
+  return { fhirUrl, fhirBase, qId, prepopBase, ids };
+}
+
+function getEffectivePrepopBase(vals) {
+  return (vals.prepopBase || vals.fhirBase || '').trim() || null;
+}
+
+async function configureFromUI() {
+  const vals = getUiValues();
+  const effBase = getEffectivePrepopBase(vals);
+  if (!effBase) return { ok: false, messages: { base: 'Keine FHIR Base angegeben' }, results: {} };
+  return await configureLFormsFHIRContext(effBase, vals.ids);
+}
 
 // Baut einen teilbaren URL mit den aktuellen Eingaben
 function updateShareUrl() {
@@ -104,7 +125,7 @@ function createFhirClient(base, ids = {}) {
     }
     url = makeAbs(url);
     const u = new URL(url);
-    // Default headers (we will negotiate Accept if needed)
+    // Default headers
     opts.headers = Object.assign({}, opts.headers || {});
     const method = (opts.method || 'GET').toUpperCase();
     // Ensure correct Content-Type for write-like requests
@@ -119,31 +140,11 @@ function createFhirClient(base, ids = {}) {
       // Some servers reject GET with a body → strip it
       delete opts.body;
     }
-    const acceptVariants = [
-      'application/fhir+json; fhirVersion=4.0'
-    ];
-    let lastError;
-    for (let i = 0; i < acceptVariants.length; i++) {
-      opts.headers['Accept'] = acceptVariants[i];
-      try {
-        const res = await fetch(u.toString(), opts);
-        // Retry on content negotiation issues
-        if (res.status === 415 || res.status === 406) {
-          lastError = new Error('HTTP ' + res.status + ' for ' + acceptVariants[i]);
-          continue;
-        }
-        if (!res.ok) {
-          // Not an Accept issue; throw to outer catch
-          throw new Error('FHIR request failed: ' + res.status + ' ' + u.toString());
-        }
-        return res.json();
-      } catch (e) {
-        lastError = e;
-        // try next Accept
-      }
-    }
-    // If all variants failed
-    throw lastError || new Error('FHIR request failed (negotiation): ' + u.toString());
+    // Nur FHIR JSON anfragen (GET ohne Body)
+    opts.headers['Accept'] = 'application/fhir+json';
+    const res = await fetch(u.toString(), opts);
+    if (!res.ok) throw new Error('FHIR request failed: ' + res.status + ' ' + u.toString());
+    return res.json();
   };
   const stub = (type, id) => ({
     id,
@@ -165,8 +166,19 @@ async function configureLFormsFHIRContext(base, ids = {}) {
   const load = async (key, type, idVal) => {
     if (!idVal) { result.results[key] = 'skipped'; return; }
     try {
-      const res = await client.request(`${type}/${encodeURIComponent(idVal)}`);
-      if (res && res.resourceType === type) {
+      let urlSpec;
+      if (/^https?:\/\//i.test(idVal)) urlSpec = idVal; // absolute URL
+      else if (idVal.includes('/')) urlSpec = idVal; // e.g. "Patient/123"
+      else urlSpec = `${type}/${encodeURIComponent(idVal)}`;
+      const res = await client.request(urlSpec);
+      if (res && res.resourceType === 'OperationOutcome') {
+        const issues = Array.isArray(res.issue)
+          ? res.issue.map(i => i?.details?.text || i?.diagnostics || i?.code).filter(Boolean).join('; ')
+          : 'OperationOutcome';
+        result.results[key] = 'error';
+        result.ok = false;
+        result.messages[key] = issues || 'OperationOutcome vom Server';
+      } else if (res && res.resourceType === type) {
         vars[key] = res;
         result.results[key] = 'ok';
       } else {
@@ -235,16 +247,8 @@ el('btnLoadUrl').onclick = async () => {
   try {
     const url = el('fhirUrl').value.trim();
     if (!url) return status('Bitte eine URL angeben.', 'err');
-    // Falls Base + IDs in UI vorhanden, Kontext setzen
-    const uiBase = el('fhirBase')?.value?.trim();
-    const preBase = el('prepopBase')?.value?.trim();
-    const base = preBase || uiBase;
-    const ids = {
-      patient: el('patientId')?.value?.trim() || undefined,
-      encounter: el('encounterId')?.value?.trim() || undefined,
-      user: el('userId')?.value?.trim() || undefined,
-    };
-    if (base) await configureLFormsFHIRContext(base, ids);
+    // Kontext aus UI übernehmen
+    await configureFromUI();
     const q = await loadQuestionnaireFromUrl(url);
     el('jsonArea').value = JSON.stringify(q, null, 2);
     renderQuestionnaire(q);
@@ -271,34 +275,18 @@ el('btnLoadServer').onclick = async () => {
     const base = el('fhirBase').value.trim();
     const id = el('qId').value.trim();
     if (!base || !id) return status('Bitte Base‑URL und ID angeben.', 'err');
-    const ids = {
-      patient: el('patientId')?.value?.trim() || undefined,
-      encounter: el('encounterId')?.value?.trim() || undefined,
-      user: el('userId')?.value?.trim() || undefined,
-    };
-    // Prepopulation-Kontext für diese Base (inkl. IDs) setzen
-    const preBase = el('prepopBase')?.value?.trim();
-    await configureLFormsFHIRContext(preBase || base, ids);
+    // Kontext aus UI übernehmen
+    await configureFromUI();
     const q = await loadQuestionnaireFromServer(base, id);
     el('jsonArea').value = JSON.stringify(q, null, 2);
     renderQuestionnaire(q);
   } catch (e) { status(e.message, 'err'); }
 };
 
-el('btnRenderJson').onclick = () => {
+el('btnRenderJson').onclick = async () => {
   try {
-    // Kontext aus Base-Feld übernehmen, falls vorhanden
-    const uiBase = el('fhirBase')?.value?.trim();
-    const preBase = el('prepopBase')?.value?.trim();
-    const base = preBase || uiBase;
-    if (base && base !== _configuredFHIRBase) {
-      const ids = {
-        patient: el('patientId')?.value?.trim() || undefined,
-        encounter: el('encounterId')?.value?.trim() || undefined,
-        user: el('userId')?.value?.trim() || undefined,
-      };
-      configureLFormsFHIRContext(base, ids);
-    }
+    // Kontext aus UI übernehmen
+    await configureFromUI();
     const txt = el('jsonArea').value.trim();
     if (!txt) return status('Bitte Questionnaire JSON einfügen.', 'err');
     const q = JSON.parse(txt);
@@ -311,20 +299,14 @@ const btnCtx = document.getElementById('btnSetContext');
 if (btnCtx) {
   btnCtx.onclick = async () => {
     try {
-      const uiBase = el('fhirBase')?.value?.trim();
-      const preBase = el('prepopBase')?.value?.trim();
-      const base = preBase || uiBase;
-      if (!base) return status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err');
-      const ids = {
-        patient: el('patientId')?.value?.trim() || undefined,
-        encounter: el('encounterId')?.value?.trim() || undefined,
-        user: el('userId')?.value?.trim() || undefined,
-      };
-      const res = await configureLFormsFHIRContext(base, ids);
+      const vals = getUiValues();
+      const effBase = getEffectivePrepopBase(vals);
+      if (!effBase) return status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err');
+      const res = await configureLFormsFHIRContext(effBase, vals.ids);
       const details = [];
-      if (ids.patient) details.push('Patient: ' + res.results.patient);
-      if (ids.encounter) details.push('Encounter: ' + res.results.encounter);
-      if (ids.user) details.push('User: ' + res.results.user);
+      if (vals.ids.patient) details.push('Patient: ' + res.results.patient);
+      if (vals.ids.encounter) details.push('Encounter: ' + res.results.encounter);
+      if (vals.ids.user) details.push('User: ' + res.results.user);
       if (details.length === 0) {
         status('Kontext gesetzt (ohne Ressourcen).', 'ok');
       } else if (res.ok) {
@@ -392,6 +374,7 @@ el('btnClear').onclick = () => {
       const q = await loadQuestionnaireFromUrl(qUrl);
       // UI spiegeln & persistieren
       if (el('fhirUrl')) setAndPersist('fhirUrl', qUrl);
+      updateShareUrl();
       el('jsonArea') && (el('jsonArea').value = JSON.stringify(q, null, 2));
       // Classic-API nutzt intern R4/R5 im convert; hier Beispiel R4:
       renderQuestionnaire(q);
@@ -405,6 +388,7 @@ el('btnClear').onclick = () => {
       const q = await loadQuestionnaireFromServer(base, id);
       if (el('fhirBase')) setAndPersist('fhirBase', base);
       if (el('qId')) setAndPersist('qId', id);
+      updateShareUrl();
       el('jsonArea') && (el('jsonArea').value = JSON.stringify(q, null, 2));
       renderQuestionnaire(q);
       return;
