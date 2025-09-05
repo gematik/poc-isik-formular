@@ -15,6 +15,7 @@ Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms
 - Unterstützung für **URL-Parameter**:
   - `?q=URL` oder `?questionnaire=URL` → rendert direkt und blendet den linken Panel aus
   - `?base=FHIRBase&id=QuestionnaireId` → lädt und rendert direkt
+  - `?minimal=true` → blendet Titel und den Kasten „Gerendertes Formular“ aus
 - Eingebaute UCUM-Unterstützung (`@lhncbc/ucum-lhc`)
 
 ---
@@ -38,12 +39,9 @@ Du kannst Questionnaires auch direkt per URL laden, ohne das linke Panel zu benu
   https://<USER>.github.io/<REPO>/?base=https://server/fhir&id=123
   ```
 
-- Optional: FHIR-Version angeben (Standard ist R4):
-  ```text
-  https://<USER>.github.io/<REPO>/?q=https://server/fhir/Questionnaire/123&_format=json&fv=R5
-  ```
-
 Wird ein solcher Parameter übergeben, blendet die App das linke Panel automatisch aus und zeigt direkt den geladenen Questionnaire an.
+
+Optional kann zusätzlich `&minimal=true` gesetzt werden, um den Seitentitel und die Box um das gerenderte Formular auszublenden (für schlanke Embeds).
 
 ---
 

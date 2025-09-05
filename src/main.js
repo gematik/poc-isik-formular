@@ -22,6 +22,13 @@ function getParam(...names) {
   return null;
 }
 
+// Minimal-Modus via URL-Parameter ?minimal=true
+(() => {
+  const sp = new URLSearchParams(window.location.search);
+  const minimal = (sp.get('minimal') || '').toLowerCase() === 'true';
+  if (minimal) document.body.classList.add('minimal');
+})();
+
 function hideLeftPanelAndExpandMain() {
   const left = document.getElementById('leftPanel');
   if (left) left.classList ? left.classList.add('hidden') : (left.style.display = 'none');

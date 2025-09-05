@@ -11,6 +11,14 @@ body {
   color: #000;
 }
 
+/* --- Minimal-Modus ----------------------------------------------------- */
+/* Wird per body.minimal aktiviert (siehe main.js) */
+body.minimal header { display: none; }
+body.minimal #renderPanel { border: none; background: transparent; }
+body.minimal #renderPanel h2 { display: none; }
+body.minimal #renderPanel .body { padding: 0; }
+body.minimal #renderTarget { padding: 0; background: transparent; }
+
 header {
   padding: 1rem 1.5rem;
   background: #f5f5f5;
