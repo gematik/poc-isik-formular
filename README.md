@@ -26,6 +26,14 @@ Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms
 - Links im Panel eine **Questionnaire-URL** eingeben, oder **FHIR Base + ID**, oder direkt ein **JSON** einfügen.
 - Mit Klick auf **Rendern** wird das Formular im rechten Panel angezeigt.
 
+#### Bespiel zur Einbindung von extern
+
+Hier genutzt im ISiK IG des Formular-Moduls
+```
+<iframe
+  src="https://gefyra.github.io/ISiK-Questionnaire-Tooling-Demo/?q=https://fhir.simplifier.net/isik-stufe-5/Questionnaire/QuestionnaireDemo&minimal=true" style="width:100%; height:800px; border:none; display:block;"></iframe>
+```
+
 ### Über URL-Parameter
 Du kannst Questionnaires auch direkt per URL laden, ohne das linke Panel zu benutzen:
 
