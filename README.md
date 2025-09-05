@@ -17,6 +17,11 @@ Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms
   - `?base=FHIRBase&id=QuestionnaireId` → lädt und rendert direkt
   - `?minimal=true` → blendet Titel und den Kasten „Gerendertes Formular“ aus
 - Erkennung von `modifierExtension` im Questionnaire: Bei Vorkommen wird ein roter Hinweis über dem Formular angezeigt (inkl. der Extension-URL[s])
+  - Prepopulation-Support (SDC): Wenn `base` gesetzt ist, wird diese URL als FHIR-Server-Kontext genutzt. Optional können Launch-Context-IDs übergeben werden:
+    - `?patient=123` → lädt `Patient/123` von `base`
+    - `?encounter=456` → lädt `Encounter/456` von `base`
+    - `?user=789` → lädt `Practitioner/789` von `base`
+    Diese Ressourcen werden als Launch-Context an LHC-Forms übergeben. Zusätzlich werden relative x-fhir-query Aufrufe über denselben FHIR-Server ausgeführt.
 - Eingebaute UCUM-Unterstützung (`@lhncbc/ucum-lhc`)
 
 ---

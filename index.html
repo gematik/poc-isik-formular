@@ -34,6 +34,19 @@
         </div>
 
         <div class="stack">
+          <label>Launch Context (optional)</label>
+          <div class="row">
+            <input id="patientId" type="text" placeholder="Patient ID" />
+            <button id="btnSetContext" class="btn secondary">Kontext setzen</button>
+          </div>
+          <div class="row">
+            <input id="encounterId" type="text" placeholder="Encounter ID" />
+            <input id="userId" type="text" placeholder="User/Practitioner ID" />
+          </div>
+          <div class="hint">Nutzt die FHIR Base aus dem Feld oben. Kontext beeinflusst Prepopulation (SDC).</div>
+        </div>
+
+        <div class="stack">
           <label for="jsonArea">Questionnaire JSON (einfügen)</label>
           <textarea id="jsonArea" placeholder='{"resourceType":"Questionnaire","status":"active", ...}'></textarea>
           <div class="actions">
