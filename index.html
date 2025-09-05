@@ -34,6 +34,20 @@
         </div>
 
         <div class="stack">
+          <label>Launch Context (optional)</label>
+          <input id="prepopBase" type="text" placeholder="Prepopulation FHIR Base (optional)" />
+          <div class="row">
+            <input id="patientId" type="text" placeholder="Patient ID" />
+            <button id="btnSetContext" class="btn secondary">Kontext setzen</button>
+          </div>
+          <div class="row">
+            <input id="encounterId" type="text" placeholder="Encounter ID" />
+            <input id="userId" type="text" placeholder="User/Practitioner ID" />
+          </div>
+          <div class="hint">Nutzt die FHIR Base aus dem Feld oben, falls die URL hier leer gelassen wird. Kontext beeinflusst Prepopulation (SDC).</div>
+        </div>
+
+        <div class="stack">
           <label for="jsonArea">Questionnaire JSON (einfügen)</label>
           <textarea id="jsonArea" placeholder='{"resourceType":"Questionnaire","status":"active", ...}'></textarea>
           <div class="actions">
@@ -44,6 +58,15 @@
         </div>
 
         <div class="hint" id="status"></div>
+
+        <div class="stack">
+          <label for="shareUrl">Link mit aktuellen Parametern</label>
+          <div class="row">
+            <input id="shareUrl" type="text" readonly />
+            <button id="btnCopyUrl" class="btn secondary" title="In Zwischenablage kopieren">Kopieren</button>
+          </div>
+          <div class="hint">Beinhaltet q oder base/id, optional prepopBase sowie Patient/Encounter/User und minimal.</div>
+        </div>
       </div>
     </section>
 
