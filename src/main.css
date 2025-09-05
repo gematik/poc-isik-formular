@@ -130,6 +130,23 @@ textarea {
 .ok { color: green; }
 .err { color: red; }
 
+#modifierWarning,
+.warning-banner {
+  background: #fdecea; /* hellrot */
+  color: #b71c1c;
+  border: 1px solid #f5c2c7;
+  border-left: 4px solid #d32f2f;
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.warning-banner a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 #renderTarget {
   background: #fff;
   color: #000;

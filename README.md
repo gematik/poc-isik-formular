@@ -16,6 +16,7 @@ Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms
   - `?q=URL` oder `?questionnaire=URL` → rendert direkt und blendet den linken Panel aus
   - `?base=FHIRBase&id=QuestionnaireId` → lädt und rendert direkt
   - `?minimal=true` → blendet Titel und den Kasten „Gerendertes Formular“ aus
+- Erkennung von `modifierExtension` im Questionnaire: Bei Vorkommen wird ein roter Hinweis über dem Formular angezeigt (inkl. der Extension-URL[s])
 - Eingebaute UCUM-Unterstützung (`@lhncbc/ucum-lhc`)
 
 ---
