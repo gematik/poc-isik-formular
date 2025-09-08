@@ -37,7 +37,8 @@ function renderQuestionnaire(q) {
     // Vor dem Rendern: Prüfe auf modifierExtension und zeige ggf. Warnung
     updateModifierWarning(q);
     const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
-    window.LForms.Util.addFormToPage(lf, document.getElementById('renderTarget'));
+    // Prepopulation einschalten, damit z.B. observationLinkPeriod greift
+    window.LForms.Util.addFormToPage(lf, document.getElementById('renderTarget'), { prepopulate: true });
     status('Erfolgreich gerendert ✅', 'ok');
   } catch (e) {
     console.error(e);
@@ -146,13 +147,48 @@ function createFhirClient(base, ids = {}) {
     if (!res.ok) throw new Error('FHIR request failed: ' + res.status + ' ' + u.toString());
     return res.json();
   };
-  const stub = (type, id) => ({
+  const patientScopedRequest = async (arg) => {
+    if (!ids.patient) return doRequest(arg);
+    // Normalize input to URL string and merge patient param
+    let url, opts = {};
+    if (typeof arg === 'string') {
+      url = arg;
+    } else if (arg && typeof arg === 'object') {
+      url = arg.url;
+      opts.method = arg.method || 'GET';
+      if (arg.headers) opts.headers = arg.headers;
+      if (arg.body !== undefined) opts.body = arg.body;
+    } else {
+      throw new Error('Invalid request argument for patient.request');
+    }
+    // Append patient search parameter if not already present
+    const abs = makeAbs(url);
+    const u = new URL(abs);
+    if (!u.searchParams.has('patient')) {
+      u.searchParams.set('patient', ids.patient);
+    }
+    return doRequest({ url: u.toString(), method: opts.method, headers: opts.headers, body: opts.body });
+  };
+  const stub = (type, id, withRequest = false) => ({
     id,
-    read: () => id ? doRequest(`${type}/${encodeURIComponent(id)}`) : Promise.resolve(null)
+    read: () => id ? doRequest(`${type}/${encodeURIComponent(id)}`) : Promise.resolve(null),
+    ...(withRequest ? { request: patientScopedRequest } : {})
   });
+  // Expose a helper for LForms to detect FHIR server version
+  const getFhirVersion = async () => {
+    try {
+      const meta = await doRequest('metadata');
+      // Return the raw FHIR version string (e.g., '4.0.1'); LForms maps this to R4/R4B/etc.
+      return meta?.fhirVersion || '4.0.1';
+    } catch (e) {
+      // Fallback to common default
+      return '4.0.1';
+    }
+  };
   return {
     request: doRequest,
-    patient: stub('Patient', ids.patient),
+    getFhirVersion,
+    patient: stub('Patient', ids.patient, true),
     encounter: stub('Encounter', ids.encounter),
     user: stub('Practitioner', ids.user)
   };
