@@ -194,3 +194,40 @@ footer {
 }
 
 .hidden { display: none !important; }
+
+/* --- Modal (Browse) ---------------------------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.modal {
+  width: min(1100px, 95vw);
+  max-height: 90vh;
+  background: #fff;
+  color: #000;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eee;
+}
+.modal-body {
+  padding: 12px 14px 16px;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+}

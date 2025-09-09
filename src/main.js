@@ -376,7 +376,7 @@ async function loadQuestionnaireFromUrl(url) {
 
 async function loadQuestionnaireFromServer(base, id) {
   const sep = base.endsWith('/') ? '' : '/';
-  const url = base + sep + 'Questionnaire/' + encodeURIComponent(id) + '?_format=json';
+  const url = base + sep + 'Questionnaire/' + encodeURIComponent(id);
   return await loadQuestionnaireFromUrl(url);
 }
 
@@ -421,60 +421,127 @@ el('btnLoadServer').onclick = async () => {
   } catch (e) { status(e.message, 'err'); }
 };
 
-// Browse-Button: öffnet resolve.html mit base und browse=questionnaire
-const btnBrowse = document.getElementById('btnBrowse');
-if (btnBrowse) {
-  btnBrowse.onclick = () => {
-    const base = el('fhirBase')?.value?.trim();
-    if (!base) { status('Bitte Base‑URL angeben.', 'err'); return; }
-    const prepopBase = el('prepopBase')?.value?.trim();
-    const parts = [
-      `base=${encodeForQueryPreservingSpecials(base)}`,
-      `browse=questionnaire`
-    ];
-    if (prepopBase) parts.push(`prepopBase=${encodeForQueryPreservingSpecials(prepopBase)}`);
-    const patientId = el('patientId')?.value?.trim();
-    const encounterId = el('encounterId')?.value?.trim();
-    const userId = el('userId')?.value?.trim();
-    if (patientId) parts.push(`patient=${encodeForQueryPreservingSpecials(patientId)}`);
-    if (encounterId) parts.push(`encounter=${encodeForQueryPreservingSpecials(encounterId)}`);
-    if (userId) parts.push(`user=${encodeForQueryPreservingSpecials(userId)}`);
-    if (document.body.classList.contains('minimal')) parts.push('minimal=true');
-    const url = `resolve.html?${parts.join('&')}`;
-    window.location.assign(url);
-  };
+// --- Browse als Popup ----------------------------------------------------
+function $(id){ return document.getElementById(id); }
+
+function bmStatus(msg, cls){ const s=$('browseStatus'); if (!s) return; s.className = 'hint ' + (cls||''); s.textContent = msg||''; }
+function bmOpen(title, info){
+  const ov = $('browseModal');
+  if (!ov) return;
+  $('browseTitle').textContent = title || 'Suche';
+  $('browseInfo').textContent = info || '';
+  $('browseResults')?.replaceChildren();
+  bmStatus('', '');
+  ov.classList.remove('hidden');
+  $('browseClose')?.focus();
+}
+function bmClose(){ const ov = $('browseModal'); if (ov) ov.classList.add('hidden'); }
+$('browseClose')?.addEventListener('click', bmClose);
+// Close on ESC
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') bmClose(); });
+// Close when clicking backdrop only
+$('browseModal')?.addEventListener('click', (ev) => { if (ev.target === $('browseModal')) bmClose(); });
+
+async function fetchFHIR(url) {
+  const res = await fetch(url, { headers: { 'Accept': 'application/fhir+json' } });
+  if (!res.ok) throw new Error('HTTP '+res.status+' für '+url);
+  return res.json();
+}
+function bundleEntries(bundle) { if (!bundle || bundle.resourceType !== 'Bundle') return []; return (bundle.entry||[]).map(e=>e && (e.resource||e)).filter(Boolean); }
+async function fetchAllPages(firstUrl, cap = 1000) {
+  const items=[]; let url=firstUrl; let guard=0;
+  while (url && guard < cap) {
+    const bundle = await fetchFHIR(url);
+    items.push(...bundleEntries(bundle));
+    const next = (bundle.link||[]).find(l=>l.relation==='next')?.url;
+    url = next ? new URL(next, new URL(firstUrl)).toString() : null;
+    guard += 1;
+  }
+  return items;
 }
 
-// Browse-Button für Patienten: öffnet resolve.html zum Browsen von Patienten
-const btnBrowsePatient = document.getElementById('btnBrowsePatient');
-if (btnBrowsePatient) {
-  btnBrowsePatient.onclick = () => {
-    const prepop = el('prepopBase')?.value?.trim();
-    const baseInput = el('fhirBase')?.value?.trim();
-    // Für die Patientensuche nutzen wir bevorzugt prepopBase; für ein bereits gewähltes Questionnaire behalten wir base+id oder q bei
-    const parts = [ `browse=patient` ];
-    if (prepop) parts.push(`prepopBase=${encodeForQueryPreservingSpecials(prepop)}`);
-    // Falls kein Questionnaire gewählt ist, brauchen wir wenigstens eine Base zur Suche
-    const fhirUrl = el('fhirUrl')?.value?.trim();
-    const qId = el('qId')?.value?.trim();
-    if (fhirUrl) {
-      parts.push(`q=${encodeForQueryPreservingSpecials(fhirUrl)}`);
-    } else if (baseInput && qId) {
-      parts.push(`base=${encodeForQueryPreservingSpecials(baseInput)}`);
-      parts.push(`id=${encodeForQueryPreservingSpecials(qId)}`);
-    } else if (!prepop && baseInput) {
-      // Kein Questionnaire und keine prepopBase: nutze fhirBase für die Suche
-      parts.push(`base=${encodeForQueryPreservingSpecials(baseInput)}`);
-    }
-    const encounterId = el('encounterId')?.value?.trim();
-    const userId = el('userId')?.value?.trim();
-    if (encounterId) parts.push(`encounter=${encodeForQueryPreservingSpecials(encounterId)}`);
-    if (userId) parts.push(`user=${encodeForQueryPreservingSpecials(userId)}`);
-    if (document.body.classList.contains('minimal')) parts.push('minimal=true');
-    const url = `resolve.html?${parts.join('&')}`;
-    window.location.assign(url);
-  };
+function getPatientName(p){ const names = Array.isArray(p.name) ? p.name.map(n => [n.prefix, n.given, n.family].flat().filter(Boolean).join(' ')).filter(Boolean) : []; return names[0] || '(ohne Name)'; }
+function patientDetails(p){
+  const rows=[]; if (p.id) rows.push(['ID', p.id]); if (p.birthDate) rows.push(['Geburtsdatum', p.birthDate]); if (p.gender) rows.push(['Geschlecht', p.gender]);
+  const idents = Array.isArray(p.identifier) ? p.identifier.map(i => `${i.system||''}|${i.value||''}`).filter(Boolean) : [];
+  if (idents.length) rows.push(['Identifier', idents.join(', ')]);
+  return rows;
 }
+function getQuestionnaireTitle(q){ return q.title || q.name || q.id || '(Questionnaire)'; }
+function questionnaireDetails(q){ const rows=[]; if (q.id) rows.push(['ID', q.id]); if (q.version) rows.push(['Version', q.version]); if (q.url) rows.push(['URL', q.url]); return rows; }
+
+function renderChoicesModal(items, kind, onSelect){
+  const container = $('browseResults'); if (!container) return;
+  container.replaceChildren();
+  const toHeaderAndRows = (res) => {
+    if (kind === 'Patient') return [getPatientName(res), patientDetails(res)];
+    return [getQuestionnaireTitle(res), questionnaireDetails(res)];
+  };
+  items.forEach((res) => {
+    const [hdr, rows] = toHeaderAndRows(res);
+    const card = document.createElement('div'); card.className = 'pick-panel'; card.setAttribute('role','button'); card.setAttribute('tabindex','0');
+    const h3 = document.createElement('h3'); h3.textContent = hdr;
+    const inner = document.createElement('div'); inner.className = 'inner';
+    const kv = document.createElement('div'); kv.className = 'kv';
+    rows.forEach(([k,v]) => {
+      const kEl = document.createElement('div'); kEl.className = 'k'; kEl.textContent = k;
+      const vEl = document.createElement('div'); vEl.className = 'v'; vEl.textContent = String(v ?? '');
+      kv.appendChild(kEl); kv.appendChild(vEl);
+    });
+    inner.appendChild(kv); card.appendChild(h3); card.appendChild(inner);
+    card.onclick = () => onSelect(res);
+    card.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelect(res); } };
+    container.appendChild(card);
+  });
+}
+
+async function openQuestionnaireBrowser(){
+  const base = el('fhirBase')?.value?.trim();
+  if (!base) { status('Bitte Base‑URL angeben.', 'err'); return; }
+  bmOpen('Questionnaires durchsuchen', `Quelle: ${base}`);
+  try {
+    bmStatus('Lade Questionnaires …');
+    const sep = base.endsWith('/') ? '' : '/';
+    const search = `Questionnaire?_count=100&_elements=id,title,name,version,description,url`;
+    const url = base + sep + search;
+    const items = await fetchAllPages(url);
+    if (!items.length) { bmStatus('Keine Questionnaires gefunden.', 'err'); return; }
+    bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
+    renderChoicesModal(items, 'Questionnaire', (sel) => {
+      setAndPersist('qId', sel.id);
+      updateShareUrl();
+      bmClose();
+    });
+  } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
+}
+
+async function openPatientBrowser(){
+  const vals = getUiValues();
+  const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
+  if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
+  bmOpen('Patienten durchsuchen', `Quelle: ${effBase}`);
+  try {
+    bmStatus('Lade Patienten …');
+    const sep = effBase.endsWith('/') ? '' : '/';
+    const search = `Patient?_count=100&_elements=id,name,birthDate,gender,identifier`;
+    const url = effBase + sep + search;
+    const items = await fetchAllPages(url);
+    if (!items.length) { bmStatus('Keine Patienten gefunden.', 'err'); return; }
+    bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
+    renderChoicesModal(items, 'Patient', (sel) => {
+      setAndPersist('patientId', sel.id);
+      updateShareUrl();
+      bmClose();
+    });
+  } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
+}
+
+// Browse-Buttons → Popups
+const btnBrowse = document.getElementById('btnBrowse');
+if (btnBrowse) btnBrowse.onclick = openQuestionnaireBrowser;
+
+const btnBrowsePatient = document.getElementById('btnBrowsePatient');
+if (btnBrowsePatient) btnBrowsePatient.onclick = openPatientBrowser;
 
 el('btnRenderJson').onclick = async () => {
   try {

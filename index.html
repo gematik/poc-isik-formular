@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LHC-Forms Demo – FHIR Questionnaire Renderer</title>
   <link href="src/main.css" rel="stylesheet" />
+  <link href="src/resolve.css" rel="stylesheet" />
   <script type="module" src="/src/main.js"></script>
 </head>
 <body>
@@ -106,6 +107,21 @@
       </div>
     </section>
   </main>
+
+  <!-- Modal für Browse-Suchergebnisse -->
+  <div id="browseModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="browseTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="browseTitle">Suche</h3>
+        <button id="browseClose" class="btn ghost" title="Schließen">Schließen</button>
+      </div>
+      <div class="modal-body">
+        <div id="browseInfo" class="hint"></div>
+        <div id="browseStatus" class="hint"></div>
+        <div id="browseResults" class="results-grid"></div>
+      </div>
+    </div>
+  </div>
 
   <footer>
     Copyright 2025@Team PT-DATA<br>
