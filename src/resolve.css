@@ -1,0 +1,33 @@
+/* Resolver page specific styles */
+.result-card { display: none; }
+.result-title { display: none; }
+.grid { display: grid; gap: 12px; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.muted { color: #666; font-size: 12px; }
+
+/* Clickable selection panels */
+.pick-panel { border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; }
+.pick-panel:focus { outline: 2px solid #1976d2; outline-offset: 2px; }
+.pick-panel:hover { box-shadow: 0 1px 0 rgba(0,0,0,0.05); background: #fafafa; }
+.pick-panel h3 { margin: 0; padding: 0.6rem 0.9rem; font-size: 15px; border-bottom: 1px solid #eee; }
+.pick-panel .inner { padding: 0.6rem 0.9rem; overflow: hidden; }
+.kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; }
+.kv .k { color: #555; }
+.kv .v { color: #111; }
+.kv .k, .kv .v { word-break: break-word; overflow-wrap: anywhere; }
+.kv .block { grid-column: 1 / -1; }
+.kv .k.block { margin-top: 6px; font-weight: 600; }
+
+/* Results grid: max 3 columns, responsive down to 1 */
+.results-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+@media (max-width: 1100px) { .results-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px)  { .results-grid { grid-template-columns: 1fr; } }
+
+/* Description overflow control */
+.markdown.desc { display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; max-width: 100%; }
+/* Fallback clamp for non-webkit: keep inside card without overflow */
+.markdown.desc { max-height: 12em; }
+.markdown a { color: inherit; text-decoration: underline; }
+.markdown a { word-break: break-word; overflow-wrap: anywhere; }
+.markdown code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f6f8fa; padding: 0 3px; border-radius: 3px; }
+

@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 const statusEl = () => $('status');
 const setStatus = (msg, cls) => { const s = statusEl(); if (!s) return; s.className = (cls||''); s.textContent = msg||''; };
 let initialMinimal = undefined;
+let initialBrowse = undefined;
 
 function spGet(...names) {
   const sp = new URLSearchParams(window.location.search);
@@ -46,6 +47,7 @@ function readInitialParams() {
     minimal: (spGet('minimal')||'').toLowerCase() === 'true' ? 'true' : undefined,
   };
   initialMinimal = p.minimal;
+  initialBrowse = spGet('browse');
   reflectParamsToInputs(p);
   return p;
 }
@@ -62,6 +64,7 @@ function collectParamsForShare() {
   // Build params from current input values; include minimal if present initially
   const vals = mergeParamsFromInputs();
   if (initialMinimal === 'true') vals.minimal = 'true';
+  if (initialBrowse) vals.browse = initialBrowse;
   return vals;
 }
 
@@ -99,30 +102,41 @@ function bundleEntries(bundle) {
   return (bundle.entry || []).map(e => e && (e.resource || e)).filter(Boolean);
 }
 
-function patientSummary(p) {
+function getPatientName(p) {
   const names = Array.isArray(p.name) ? p.name.map(n => [n.prefix, n.given, n.family].flat().filter(Boolean).join(' ')).filter(Boolean) : [];
-  const nm = names[0] || '(ohne Name)';
-  const idents = Array.isArray(p.identifier) ? p.identifier.map(i => `${i.system||''}|${i.value||''}`).join(', ') : '';
-  const bday = p.birthDate ? `, geb. ${p.birthDate}` : '';
-  const gender = p.gender ? `, ${p.gender}` : '';
-  return `${nm}${bday}${gender}${idents ? ` — ${idents}` : ''}`;
+  return names[0] || '(ohne Name)';
+}
+function patientDetails(p) {
+  const rows = [];
+  if (p.id) rows.push(['ID', p.id]);
+  if (p.birthDate) rows.push(['Geburtsdatum', p.birthDate]);
+  if (p.gender) rows.push(['Geschlecht', p.gender]);
+  const idents = Array.isArray(p.identifier) ? p.identifier.map(i => `${i.system||''}|${i.value||''}`).filter(Boolean) : [];
+  if (idents.length) rows.push(['Identifier', idents.join(', ')]);
+  return rows;
 }
 
-function accountSummary(a) {
-  const title = a.name || a.description || '(Account)';
-  const status = a.status ? `, Status: ${a.status}` : '';
-  const idents = Array.isArray(a.identifier) ? a.identifier.map(i => `${i.system||''}|${i.value||''}`).join(', ') : '';
-  return `${title}${status}${idents ? ` — ${idents}` : ''}`;
+function getAccountTitle(a) { return a.name || a.description || '(Account)'; }
+function accountDetails(a) {
+  const rows = [];
+  if (a.id) rows.push(['ID', a.id]);
+  if (a.status) rows.push(['Status', a.status]);
+  const idents = Array.isArray(a.identifier) ? a.identifier.map(i => `${i.system||''}|${i.value||''}`).filter(Boolean) : [];
+  if (idents.length) rows.push(['Identifier', idents.join(', ')]);
+  return rows;
 }
 
-function questionnaireSummary(q) {
-  const title = q.title || q.name || q.id || '(Questionnaire)';
-  const ver = q.version ? ` v${q.version}` : '';
-  const url = q.url ? ` — ${q.url}` : '';
-  return `${title}${ver}${url}`;
+function getQuestionnaireTitle(q) { return q.title || q.name || q.id || '(Questionnaire)'; }
+function questionnaireDetails(q) {
+  const rows = [];
+  if (q.id) rows.push(['ID', q.id]);
+  if (q.version) rows.push(['Version', q.version]);
+  if (q.url) rows.push(['URL', q.url]);
+  if (q.description) rows.push(['Beschreibung', { html: mdToHtml(String(q.description)), markdown: true, block: true }]);
+  return rows;
 }
 
-function renderChoices(containerId, title, items, onSelect, summarize) {
+function renderChoices(containerId, title, items, onSelect, kind) {
   const container = $(containerId);
   if (!container) return;
   container.replaceChildren();
@@ -131,20 +145,48 @@ function renderChoices(containerId, title, items, onSelect, summarize) {
   heading.className = 'result-title';
   heading.textContent = `${title} – mehrere Treffer, bitte wählen:`;
   container.appendChild(heading);
+  const toHeaderAndRows = (res) => {
+    if (kind === 'Patient') return [getPatientName(res), patientDetails(res)];
+    if (kind === 'Account') return [getAccountTitle(res), accountDetails(res)];
+    return [getQuestionnaireTitle(res), questionnaireDetails(res)];
+  };
   items.forEach((res) => {
+    const [hdr, rows] = toHeaderAndRows(res);
     const card = document.createElement('div');
-    card.className = 'result-card';
-    const line = document.createElement('div');
-    line.textContent = summarize(res);
-    const actions = document.createElement('div');
-    actions.style.marginTop = '6px';
-    const btn = document.createElement('button');
-    btn.className = 'btn secondary';
-    btn.textContent = 'Auswählen';
-    btn.onclick = () => onSelect(res);
-    actions.appendChild(btn);
-    card.appendChild(line);
-    card.appendChild(actions);
+    card.className = 'pick-panel';
+    card.setAttribute('role','button');
+    card.setAttribute('tabindex','0');
+    const h3 = document.createElement('h3');
+    h3.textContent = hdr;
+    const inner = document.createElement('div');
+    inner.className = 'inner';
+    const kv = document.createElement('div');
+    kv.className = 'kv';
+    rows.forEach(([k,v]) => {
+      const isBlock = v && typeof v === 'object' && v.block;
+      const kEl = document.createElement('div'); kEl.className = 'k' + (isBlock ? ' block' : ''); kEl.textContent = k;
+      const vEl = document.createElement('div'); vEl.className = 'v' + (isBlock ? ' block' : '');
+      if (v && typeof v === 'object' && v.html) {
+        vEl.classList.add('markdown');
+        if (v.markdown) vEl.classList.add('desc');
+        vEl.innerHTML = v.html;
+      } else {
+        vEl.textContent = String(v ?? '');
+      }
+      if (isBlock) {
+        // key on its own row, value below (full width)
+        kv.appendChild(kEl);
+        kv.appendChild(vEl);
+      } else {
+        kv.appendChild(kEl);
+        kv.appendChild(vEl);
+      }
+    });
+    inner.appendChild(kv);
+    card.appendChild(h3);
+    card.appendChild(inner);
+    card.onclick = () => onSelect(res);
+    card.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelect(res); } };
     container.appendChild(card);
   });
 }
@@ -184,6 +226,7 @@ async function runResolution(params) {
   const needQ = !out.q && !out.id && !!out.qCanonical;
   const needPatient = !out.patient && !!out.pid;
   const needAccount = !!out.fid; // always resolve account if fid present, even if account not used by index
+  const browseAllQs = (initialBrowse && String(initialBrowse).toLowerCase().startsWith('q')) || (!needQ && !needPatient && !needAccount);
 
   // Prepare searches
   const tasks = [];
@@ -212,6 +255,12 @@ async function runResolution(params) {
     tasks.push(fetchFHIR(url).then(bundle => ({ key: 'questionnaire', bundle })).catch(e => ({ key: 'questionnaire', error: e })));
   }
 
+  if (browseAllQs) {
+    const search = `Questionnaire?_count=100&_elements=id,title,name,version,description,url`;
+    const url = makeAbs(base, search);
+    tasks.push(fetchAllPages(url).then(items => ({ key: 'questionnaireAll', items })).catch(e => ({ key: 'questionnaireAll', error: e })));
+  }
+
   const results = await Promise.all(tasks);
 
   let needUserChoice = false;
@@ -228,7 +277,7 @@ async function runResolution(params) {
         out.patient = items[0].id;
       } else {
         needUserChoice = true;
-        renderChoices('patientResults', 'Patient', items, (sel) => { out.patient = sel.id; attemptRedirect(out); }, patientSummary);
+        renderChoices('patientResults', 'Patient', items, (sel) => { out.patient = sel.id; attemptRedirect(out); }, 'Patient');
       }
     }
     if (r.key === 'account') {
@@ -237,7 +286,7 @@ async function runResolution(params) {
         out.account = items[0].id;
       } else {
         needUserChoice = true;
-        renderChoices('accountResults', 'Account', items, (sel) => { out.account = sel.id; attemptRedirect(out); }, accountSummary);
+        renderChoices('accountResults', 'Account', items, (sel) => { out.account = sel.id; attemptRedirect(out); }, 'Account');
       }
     }
     if (r.key === 'questionnaire') {
@@ -246,8 +295,15 @@ async function runResolution(params) {
         out.id = items[0].id;
       } else {
         needUserChoice = true;
-        renderChoices('questionnaireResults', 'Questionnaire', items, (sel) => { out.id = sel.id; attemptRedirect(out); }, questionnaireSummary);
+        renderChoices('questionnaireResults', 'Questionnaire', items, (sel) => { out.id = sel.id; attemptRedirect(out); }, 'Questionnaire');
       }
+    }
+    if (r.key === 'questionnaireAll') {
+      if (r.error) { setStatus(`Fehler beim Laden aller Questionnaires: ${r.error.message}`, 'err'); return; }
+      const items = r.items || [];
+      if (items.length === 0) { setStatus('Keine Questionnaires gefunden.', 'err'); return; }
+      needUserChoice = true;
+      renderChoices('questionnaireResults', 'Questionnaires', items, (sel) => { out.id = sel.id; attemptRedirect(out); }, 'Questionnaire');
     }
   }
 
@@ -316,9 +372,48 @@ function attemptRedirect(out) {
   };
 
   // If base present and at least one of pid/fid/qCanonical present, run immediately
-  if (params.base && (params.pid || params.fid || params.qCanonical)) {
+  if (params.base && (params.pid || params.fid || params.qCanonical || initialBrowse)) {
     runResolution(params);
   } else {
     setStatus('Parameter prüfen und ggf. „Suchen“ klicken …');
   }
 })();
+
+// --- Minimal Markdown renderer (safe subset) -----------------------------
+function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function mdToHtml(md) {
+  if (!md) return '';
+  let s = String(md).replace(/\r\n/g, '\n');
+  s = escapeHtml(s);
+  // Links [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, t, u) => {
+    try {
+      const safeUrl = /^https?:/i.test(u) ? u : '#';
+      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
+    } catch { return t; }
+  });
+  // Bold **text** or __text__
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  // Italic *text* or _text_
+  s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>').replace(/(?<!_)_([^_]+)_(?!_)/g, '<em>$1</em>');
+  // Inline code `code`
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Simple headings: # H -> bold line
+  s = s.replace(/^#{1,6}\s*(.+)$/gm, '<strong>$1</strong>');
+  // Line breaks
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+async function fetchAllPages(firstUrl, cap = 1000) {
+  const items = [];
+  let url = firstUrl;
+  let guard = 0;
+  while (url && guard < cap) {
+    const bundle = await fetchFHIR(url);
+    items.push(...bundleEntries(bundle));
+    const next = (bundle.link || []).find(l => l.relation === 'next')?.url;
+    url = next ? makeAbs(new URL(firstUrl).origin, next) : null;
+    guard += 1;
+  }
+  return items;
+}

@@ -5,14 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Resolver – FHIR Lookup</title>
   <link href="src/main.css" rel="stylesheet" />
+  <link href="src/resolve.css" rel="stylesheet" />
   <script type="module" src="/src/resolve.js"></script>
-  <style>
-    .result-card { border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 6px 0; }
-    .result-title { font-weight: 600; }
-    .grid { display: grid; gap: 12px; }
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .muted { color: #666; font-size: 12px; }
-  </style>
   </head>
 <body>
   <header>
@@ -58,9 +52,9 @@
     <section class="panel" id="resultsPanel">
       <h2>Suchergebnisse</h2>
       <div class="body grid">
-        <div id="patientResults"></div>
-        <div id="accountResults"></div>
-        <div id="questionnaireResults"></div>
+        <div id="patientResults" class="results-grid"></div>
+        <div id="accountResults" class="results-grid"></div>
+        <div id="questionnaireResults" class="results-grid"></div>
       </div>
     </section>
   </main>

@@ -275,6 +275,61 @@ function setAndPersist(id, value) {
 // initial befüllen
 updateShareUrl();
 
+// Presets für FHIR Base Auswahl
+const FHIR_BASE_PRESETS = {
+  hl7: 'https://fhir.hl7.de/fhir',
+  simplifier: 'https://fhir.simplifier.net/isik-stufe-5',
+};
+
+function applyFhirBasePreset(preset) {
+  const baseInput = el('fhirBase');
+  if (!baseInput) return;
+  const known = FHIR_BASE_PRESETS[preset];
+  if (preset === 'custom') {
+    // Zeige freies Eingabefeld
+    baseInput.parentElement?.classList?.remove('hidden');
+    baseInput.style.display = '';
+    baseInput.disabled = false;
+    baseInput.readOnly = false;
+    baseInput.placeholder = 'FHIR Base URL, z. B. http://localhost:8080/fhir';
+    baseInput.focus();
+  } else if (known) {
+    // Setze bekannten Wert und verstecke freies Feld
+    baseInput.value = known;
+    try { localStorage.setItem('persist:fhirBase', known); } catch {}
+    updateShareUrl();
+    // Feld sichtbar und bearbeitbar anzeigen (nicht read-only)
+    baseInput.style.display = '';
+    baseInput.disabled = false;
+    baseInput.readOnly = false;
+  }
+}
+
+// Init Preset-Auswahl basierend auf aktuellem Wert
+const presetSel = document.getElementById('fhirBasePreset');
+if (presetSel) {
+  const cur = el('fhirBase')?.value?.trim();
+  const matchKey = Object.keys(FHIR_BASE_PRESETS).find(k => FHIR_BASE_PRESETS[k] === cur);
+  if (matchKey) {
+    presetSel.value = matchKey;
+    applyFhirBasePreset(matchKey);
+  } else {
+    presetSel.value = 'custom';
+    applyFhirBasePreset('custom');
+  }
+  presetSel.addEventListener('change', () => applyFhirBasePreset(presetSel.value));
+
+  // Wenn Base-URL manuell geändert wird, Preset entsprechend anpassen
+  const baseInput = el('fhirBase');
+  if (baseInput) {
+    baseInput.addEventListener('input', () => {
+      const v = baseInput.value.trim();
+      const k = Object.keys(FHIR_BASE_PRESETS).find(key => FHIR_BASE_PRESETS[key] === v);
+      presetSel.value = k || 'custom';
+    });
+  }
+}
+
 async function loadQuestionnaireFromUrl(url) {
   status('Lade Questionnaire von URL …');
   const res = await fetch(url, { headers: { 'Accept': 'application/fhir+json' } });
@@ -328,6 +383,30 @@ el('btnLoadServer').onclick = async () => {
     renderQuestionnaire(q);
   } catch (e) { status(e.message, 'err'); }
 };
+
+// Browse-Button: öffnet resolve.html mit base und browse=questionnaire
+const btnBrowse = document.getElementById('btnBrowse');
+if (btnBrowse) {
+  btnBrowse.onclick = () => {
+    const base = el('fhirBase')?.value?.trim();
+    if (!base) { status('Bitte Base‑URL angeben.', 'err'); return; }
+    const prepopBase = el('prepopBase')?.value?.trim();
+    const parts = [
+      `base=${encodeForQueryPreservingSpecials(base)}`,
+      `browse=questionnaire`
+    ];
+    if (prepopBase) parts.push(`prepopBase=${encodeForQueryPreservingSpecials(prepopBase)}`);
+    const patientId = el('patientId')?.value?.trim();
+    const encounterId = el('encounterId')?.value?.trim();
+    const userId = el('userId')?.value?.trim();
+    if (patientId) parts.push(`patient=${encodeForQueryPreservingSpecials(patientId)}`);
+    if (encounterId) parts.push(`encounter=${encodeForQueryPreservingSpecials(encounterId)}`);
+    if (userId) parts.push(`user=${encodeForQueryPreservingSpecials(userId)}`);
+    if (document.body.classList.contains('minimal')) parts.push('minimal=true');
+    const url = `resolve.html?${parts.join('&')}`;
+    window.location.assign(url);
+  };
+}
 
 el('btnRenderJson').onclick = async () => {
   try {
@@ -413,7 +492,7 @@ el('btnClear').onclick = () => {
 
     // Wenn explizite URL vorhanden, diese nutzen
     if (qUrl) {
-      hideLeftPanelAndExpandMain();
+      if (document.body.classList.contains('minimal')) hideLeftPanelAndExpandMain();
       // FHIR-Kontext setzen: bevorzugt prepopBase (URL/UI), sonst base (URL/UI)
       const effBase = prepopBase || base || el('prepopBase')?.value?.trim() || el('fhirBase')?.value?.trim();
       if (effBase) await configureLFormsFHIRContext(effBase, { patient: patientId, encounter: encounterId, user: userId });
@@ -429,7 +508,7 @@ el('btnClear').onclick = () => {
 
     // Alternativ base+id
     if (base && id) {
-      hideLeftPanelAndExpandMain();
+      if (document.body.classList.contains('minimal')) hideLeftPanelAndExpandMain();
       await configureLFormsFHIRContext(prepopBase || base, { patient: patientId, encounter: encounterId, user: userId });
       const q = await loadQuestionnaireFromServer(base, id);
       if (el('fhirBase')) setAndPersist('fhirBase', base);

@@ -25,11 +25,21 @@
         </div>
 
         <div class="stack">
-          <label for="fhirBase">Vom FHIR-Server per ID laden</label>
+          <label for="fhirBasePreset">Vom FHIR-Server per ID laden</label>
+          <div class="row">
+            <select id="fhirBasePreset">
+              <option value="hl7">HL7 Deutschland Public Test Server</option>
+              <option value="simplifier">Simplifier ISiK Stufe 5 Server</option>
+              <option value="custom">Anderer</option>
+            </select>
+          </div>
           <div class="row">
             <input id="fhirBase" type="text" placeholder="FHIR Base URL, z. B. http://localhost:8080/fhir" />
+          </div>
+          <div class="row row3">
             <input id="qId" type="text" placeholder="Questionnaire ID" />
             <button id="btnLoadServer" class="btn">Fetch</button>
+            <button id="btnBrowse" class="btn secondary" title="Questionnaires auf dem Server durchsuchen">Browse</button>
           </div>
         </div>
 
