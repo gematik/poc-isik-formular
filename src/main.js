@@ -330,6 +330,43 @@ if (presetSel) {
   }
 }
 
+// Collapsible stacks on the left panel
+(function initCollapsibles(){
+  const stacks = Array.from(document.querySelectorAll('#leftPanel .body > .stack.collapsible'));
+  stacks.forEach((stack, idx) => {
+    // Build header
+    const header = document.createElement('div');
+    header.className = 'col-header';
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = stack.dataset.title || `Abschnitt ${idx+1}`;
+    const chev = document.createElement('div');
+    chev.className = 'chev';
+    chev.textContent = '▾';
+    header.appendChild(title);
+    header.appendChild(chev);
+    // Move existing children into body
+    const body = document.createElement('div');
+    body.className = 'col-body';
+    while (stack.firstChild) body.appendChild(stack.firstChild);
+    stack.appendChild(header);
+    stack.appendChild(body);
+    // Toggle behavior
+    const storageKey = 'collapse:' + (stack.dataset.title || idx);
+    const applyState = (collapsed) => {
+      if (collapsed) { stack.classList.add('collapsed'); chev.textContent = '▸'; }
+      else { stack.classList.remove('collapsed'); chev.textContent = '▾'; }
+    };
+    const saved = localStorage.getItem(storageKey);
+    if (saved === '1') applyState(true);
+    header.addEventListener('click', () => {
+      const isCollapsed = stack.classList.toggle('collapsed');
+      chev.textContent = isCollapsed ? '▸' : '▾';
+      try { localStorage.setItem(storageKey, isCollapsed ? '1' : '0'); } catch {}
+    });
+  });
+})();
+
 async function loadQuestionnaireFromUrl(url) {
   status('Lade Questionnaire von URL …');
   const res = await fetch(url, { headers: { 'Accept': 'application/fhir+json' } });
@@ -400,6 +437,37 @@ if (btnBrowse) {
     const encounterId = el('encounterId')?.value?.trim();
     const userId = el('userId')?.value?.trim();
     if (patientId) parts.push(`patient=${encodeForQueryPreservingSpecials(patientId)}`);
+    if (encounterId) parts.push(`encounter=${encodeForQueryPreservingSpecials(encounterId)}`);
+    if (userId) parts.push(`user=${encodeForQueryPreservingSpecials(userId)}`);
+    if (document.body.classList.contains('minimal')) parts.push('minimal=true');
+    const url = `resolve.html?${parts.join('&')}`;
+    window.location.assign(url);
+  };
+}
+
+// Browse-Button für Patienten: öffnet resolve.html zum Browsen von Patienten
+const btnBrowsePatient = document.getElementById('btnBrowsePatient');
+if (btnBrowsePatient) {
+  btnBrowsePatient.onclick = () => {
+    const prepop = el('prepopBase')?.value?.trim();
+    const baseInput = el('fhirBase')?.value?.trim();
+    // Für die Patientensuche nutzen wir bevorzugt prepopBase; für ein bereits gewähltes Questionnaire behalten wir base+id oder q bei
+    const parts = [ `browse=patient` ];
+    if (prepop) parts.push(`prepopBase=${encodeForQueryPreservingSpecials(prepop)}`);
+    // Falls kein Questionnaire gewählt ist, brauchen wir wenigstens eine Base zur Suche
+    const fhirUrl = el('fhirUrl')?.value?.trim();
+    const qId = el('qId')?.value?.trim();
+    if (fhirUrl) {
+      parts.push(`q=${encodeForQueryPreservingSpecials(fhirUrl)}`);
+    } else if (baseInput && qId) {
+      parts.push(`base=${encodeForQueryPreservingSpecials(baseInput)}`);
+      parts.push(`id=${encodeForQueryPreservingSpecials(qId)}`);
+    } else if (!prepop && baseInput) {
+      // Kein Questionnaire und keine prepopBase: nutze fhirBase für die Suche
+      parts.push(`base=${encodeForQueryPreservingSpecials(baseInput)}`);
+    }
+    const encounterId = el('encounterId')?.value?.trim();
+    const userId = el('userId')?.value?.trim();
     if (encounterId) parts.push(`encounter=${encodeForQueryPreservingSpecials(encounterId)}`);
     if (userId) parts.push(`user=${encodeForQueryPreservingSpecials(userId)}`);
     if (document.body.classList.contains('minimal')) parts.push('minimal=true');

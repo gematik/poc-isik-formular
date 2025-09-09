@@ -15,7 +15,7 @@
     <section class="panel" id="leftPanel">
       <h2>Quelle wählen</h2>
       <div class="body stack">
-        <div class="stack">
+        <div class="stack collapsible collapsed" data-title="Questionnaire per URL">
           <label for="fhirUrl">Questionnaire per URL (FHIR JSON)</label>
           <div class="row">
             <input id="fhirUrl" type="text" placeholder="z.B. http://localhost:8080/fhir/Questionnaire/123?_format=json" />
@@ -24,7 +24,7 @@
           <div class="hint">Tipp: Mit HAPI lokal: <code>http://localhost:8080/fhir/Questionnaire/{id}?_format=json</code></div>
         </div>
 
-        <div class="stack">
+        <div class="stack collapsible" data-title="Vom FHIR-Server per ID laden">
           <label for="fhirBasePreset">Vom FHIR-Server per ID laden</label>
           <div class="row">
             <select id="fhirBasePreset">
@@ -34,30 +34,49 @@
             </select>
           </div>
           <div class="row">
-            <input id="fhirBase" type="text" placeholder="FHIR Base URL, z. B. http://localhost:8080/fhir" />
+            <div class="stack" style="width:100%">
+              <label for="fhirBase">FHIR Base URL</label>
+              <input id="fhirBase" type="text" placeholder="FHIR Base URL, z. B. http://localhost:8080/fhir" />
+            </div>
           </div>
           <div class="row row3">
-            <input id="qId" type="text" placeholder="Questionnaire ID" />
+            <div class="stack">
+              <label for="qId">Questionnaire ID</label>
+              <input id="qId" type="text" placeholder="Questionnaire ID" />
+            </div>
             <button id="btnLoadServer" class="btn">Fetch</button>
             <button id="btnBrowse" class="btn secondary" title="Questionnaires auf dem Server durchsuchen">Browse</button>
           </div>
         </div>
 
-        <div class="stack">
+        <div class="stack collapsible" data-title="Launch Context">
           <label>Launch Context (optional)</label>
+          <label for="prepopBase">Prepopulation FHIR Base</label>
           <input id="prepopBase" type="text" placeholder="Prepopulation FHIR Base (optional)" />
-          <div class="row">
-            <input id="patientId" type="text" placeholder="Patient ID" />
-            <button id="btnSetContext" class="btn secondary">Kontext setzen</button>
+          <div class="row row3">
+            <div class="stack">
+              <label for="patientId">Patient ID</label>
+              <input id="patientId" type="text" placeholder="Patient ID" />
+            </div>
+            <button id="btnBrowsePatient" class="btn secondary" title="Patienten auf dem Server durchsuchen">Browse</button>
+          </div>
+          <div class="row row2">
+            <div class="stack">
+              <label for="encounterId">Encounter ID</label>
+              <input id="encounterId" type="text" placeholder="Encounter ID" />
+            </div>
+            <div class="stack">
+              <label for="userId">User/Practitioner ID</label>
+              <input id="userId" type="text" placeholder="User/Practitioner ID" />
+            </div>
           </div>
           <div class="row">
-            <input id="encounterId" type="text" placeholder="Encounter ID" />
-            <input id="userId" type="text" placeholder="User/Practitioner ID" />
+            <button id="btnSetContext" class="btn secondary">Kontext setzen</button>
           </div>
           <div class="hint">Nutzt die FHIR Base aus dem Feld oben, falls die URL hier leer gelassen wird. Kontext beeinflusst Prepopulation (SDC).</div>
         </div>
 
-        <div class="stack">
+        <div class="stack collapsible" data-title="Questionnaire JSON">
           <label for="jsonArea">Questionnaire JSON (einfügen)</label>
           <textarea id="jsonArea" placeholder='{"resourceType":"Questionnaire","status":"active", ...}'></textarea>
           <div class="actions">
@@ -69,7 +88,7 @@
 
         <div class="hint" id="status"></div>
 
-        <div class="stack">
+        <div class="stack collapsible" data-title="Link mit aktuellen Parametern">
           <label for="shareUrl">Link mit aktuellen Parametern</label>
           <div class="row">
             <input id="shareUrl" type="text" readonly />

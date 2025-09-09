@@ -93,6 +93,13 @@ textarea {
   grid-template-columns: 1fr auto auto;
 }
 
+/* In Zeilen mit Label+Input (stack) sollen Buttons unten am Input abschließen */
+.row.row3 > .btn { align-self: end; }
+
+.row.row2 {
+  grid-template-columns: 1fr 1fr;
+}
+
 select {
   width: 100%;
   background: #fff;
@@ -132,6 +139,14 @@ select {
   display: grid;
   gap: 10px;
 }
+
+/* Collapsible stacks */
+.collapsible { border: 1px dashed transparent; padding-top: 0; }
+.collapsible .col-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; user-select: none; }
+.collapsible .col-header .title { font-weight: 600; font-size: 14px; color: #333; }
+.collapsible .col-header .chev { font-size: 16px; color: #777; }
+.collapsible.collapsed .col-body { display: none; }
+.collapsible .col-body { display: grid; gap: 10px; }
 
 .actions {
   display: flex;

@@ -216,7 +216,8 @@ function buildRedirectUrl(paramsOut) {
 async function runResolution(params) {
   clearResultContainers();
   const base = params.base;
-  if (!base) { setStatus('Bitte FHIR Base angeben.', 'err'); return; }
+  const patientSearchBase = params.prepopBase || params.base;
+  if (!base && !patientSearchBase) { setStatus('Bitte FHIR Base angeben.', 'err'); return; }
 
   setStatus('Suche wird ausgeführt …');
   // Outputs we may resolve
@@ -226,7 +227,8 @@ async function runResolution(params) {
   const needQ = !out.q && !out.id && !!out.qCanonical;
   const needPatient = !out.patient && !!out.pid;
   const needAccount = !!out.fid; // always resolve account if fid present, even if account not used by index
-  const browseAllQs = (initialBrowse && String(initialBrowse).toLowerCase().startsWith('q')) || (!needQ && !needPatient && !needAccount);
+  const browseAllQs = (initialBrowse && String(initialBrowse).toLowerCase().startsWith('q')) || (!needQ && !needPatient && !needAccount && initialBrowse && String(initialBrowse).toLowerCase() !== 'patient');
+  const browseAllPatients = (initialBrowse && String(initialBrowse).toLowerCase().startsWith('p'));
 
   // Prepare searches
   const tasks = [];
@@ -259,6 +261,13 @@ async function runResolution(params) {
     const search = `Questionnaire?_count=100&_elements=id,title,name,version,description,url`;
     const url = makeAbs(base, search);
     tasks.push(fetchAllPages(url).then(items => ({ key: 'questionnaireAll', items })).catch(e => ({ key: 'questionnaireAll', error: e })));
+  }
+
+  if (browseAllPatients) {
+    const search = `Patient?_count=100&_elements=id,name,birthDate,gender,identifier`;
+    const eff = patientSearchBase || base;
+    const url = makeAbs(eff, search);
+    tasks.push(fetchAllPages(url).then(items => ({ key: 'patientAll', items })).catch(e => ({ key: 'patientAll', error: e })));
   }
 
   const results = await Promise.all(tasks);
@@ -304,6 +313,13 @@ async function runResolution(params) {
       if (items.length === 0) { setStatus('Keine Questionnaires gefunden.', 'err'); return; }
       needUserChoice = true;
       renderChoices('questionnaireResults', 'Questionnaires', items, (sel) => { out.id = sel.id; attemptRedirect(out); }, 'Questionnaire');
+    }
+    if (r.key === 'patientAll') {
+      if (r.error) { setStatus(`Fehler beim Laden aller Patienten: ${r.error.message}`, 'err'); return; }
+      const items = r.items || [];
+      if (items.length === 0) { setStatus('Keine Patienten gefunden.', 'err'); return; }
+      needUserChoice = true;
+      renderChoices('patientResults', 'Patienten', items, (sel) => { out.patient = sel.id; attemptRedirect(out); }, 'Patient');
     }
   }
 
