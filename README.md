@@ -23,6 +23,15 @@ Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms
     - `?user=789` → lädt `Practitioner/789` von `base`
     Diese Ressourcen werden als Launch-Context an LHC-Forms übergeben. Zusätzlich werden relative x-fhir-query Aufrufe über denselben FHIR-Server ausgeführt.
 - Eingebaute UCUM-Unterstützung (`@lhncbc/ucum-lhc`)
+  
+Zusätzlich:
+- Eigene Resolver-Seite `resolve.html` zur Auflösung logischer Identifier vor dem Start:
+  - `pid`: Patient.identifier → sucht `Patient?identifier={pid}` und wählt/erzwingt Auswahl
+  - `fid`: Account.identifier → sucht `Account?identifier={fid}` und wählt/erzwingt Auswahl
+  - `qCanonical`: Questionnaire canonical (`url` bzw. `url|version`) → sucht `Questionnaire?url=... [&version=...]`
+  - Weiterleitung zu `index.html` mit aufgelösten IDs (`base+id` oder `q`) und vorhandenen Kontext-Parametern
+  - Eingebauter URL‑Builder inkl. „Kopieren“-Button
+  - Hinweis: `index.html` setzt den FHIR‑Kontext jetzt auch, wenn nur `base`/`prepopBase` und z. B. `patient` übergeben werden (ohne Auto‑Render)
 
 ---
 
@@ -59,13 +68,48 @@ Optional kann zusätzlich `&minimal=true` gesetzt werden, um den Seitentitel und
 
 ---
 
+## Resolver-Seite (resolve.html)
+
+Wenn statt interner IDs logische Identifier verwendet werden sollen, hilft die Resolver-Seite dabei, vor dem Start passende Ressourcen zu finden und die richtigen Parameter für `index.html` zusammenzustellen.
+
+Unterstützte Parameter auf `resolve.html`:
+- `base`: FHIR‑Basis‑URL (benötigt für alle Suchen)
+- `pid`: Patient‑Identifier (z. B. `SYS|VAL`), Suche: `Patient?identifier=...`
+- `fid`: Account‑Identifier, Suche: `Account?identifier=...`
+- `qCanonical`: Canonical des Questionnaires, optional mit Version `url|version`, Suche: `Questionnaire?url=... [&version=...]`
+- Pass‑through: `prepopBase`, `patient`, `encounter`, `user`, `id`, `q`, `minimal`
+
+Ablauf:
+- `resolve.html` führt die Suchen aus. Bei genau einem Treffer wird automatisch ausgewählt; bei mehreren wirst du um Auswahl gebeten (es werden sinnvolle Infos angezeigt: Patient Name/Geburtsdatum/Geschlecht/Identifier, Account Name/Status/Identifier, Questionnaire Titel/Version/URL).
+- Danach Weiterleitung zu `index.html` mit den aufgelösten Parametern:
+  - Bevorzugt `base` + `id` für den Questionnaire, ansonsten `q` (komplette URL)
+  - Kontext‑Parameter (`patient`, `encounter`, `user`, optional `prepopBase`) werden übernommen; `account` wird ebenfalls übergeben (kann später genutzt werden)
+- Auf der Resolver‑Seite gibt es einen URL‑Builder mit Kopier‑Button, der die aktuelle `resolve.html`‑URL zusammenstellt.
+
+Beispiele:
+- Patient per Identifier und Questionnaire per Canonical auflösen:
+  ```text
+  resolve.html?base=http://localhost:8080/fhir&pid=INS|12345&qCanonical=http://example.org/fhir/Questionnaire/my-form|1.0.0
+  ```
+- Account per Identifier auflösen:
+  ```text
+  resolve.html?base=http://localhost:8080/fhir&fid=ACCTSYS|9988
+  ```
+
+Hinweis zu `index.html`:
+- Der FHIR‑Kontext wird jetzt auch gesetzt, wenn nur `base`/`prepopBase` und eines von `patient`/`encounter`/`user` per URL übergeben werden – selbst wenn kein Questionnaire automatisch geladen wird. Dadurch greift die Prepopulation sofort, sobald später ein Formular geladen wird.
+
+---
+
 ## Projektstruktur
 
 ```text
 LHC-Forms-Demo/
 ├── index.html       # Einstiegspunkt, enthält Panels und Render-Target
+├── resolve.html     # Resolver-Seite für pid/fid/qCanonical und Weiterleitung
 ├── src/
 │   ├── main.js      # App-Logik, UI-Handler, Auto-Init per URL-Param
+│   ├── resolve.js   # Logik der Resolver-Seite (FHIR-Suchen, Auswahl, Redirect)
 │   └── main.css     # Minimale Styles (helles Theme)
 ├── package.json     # Projektdefinition mit Vite und gh-pages
 └── vite.config.js   # Vite-Konfiguration (Base-Pfad für GitHub Pages)

@@ -76,9 +76,16 @@ async function configureFromUI() {
 }
 
 // Baut einen teilbaren URL mit den aktuellen Eingaben
+function encodeForQueryPreservingSpecials(val) {
+  // Encode, but keep ':' '/' and '|' readable; still encode '&' and '?' etc.
+  return encodeURIComponent(val)
+    .replace(/%3A/gi, ':')
+    .replace(/%2F/gi, '/')
+    .replace(/%7C/gi, '|');
+}
+
 function updateShareUrl() {
   const baseUrl = window.location.origin + window.location.pathname;
-  const sp = new URLSearchParams();
   const fhirUrl = el('fhirUrl')?.value?.trim();
   const fhirBase = el('fhirBase')?.value?.trim();
   const qId = el('qId')?.value?.trim();
@@ -87,19 +94,22 @@ function updateShareUrl() {
   const encounterId = el('encounterId')?.value?.trim();
   const userId = el('userId')?.value?.trim();
 
+  const params = {};
   if (fhirUrl) {
-    sp.set('q', fhirUrl);
+    params.q = fhirUrl;
   } else if (fhirBase && qId) {
-    sp.set('base', fhirBase);
-    sp.set('id', qId);
+    params.base = fhirBase;
+    params.id = qId;
   }
-  if (prepopBase) sp.set('prepopBase', prepopBase);
-  if (patientId) sp.set('patient', patientId);
-  if (encounterId) sp.set('encounter', encounterId);
-  if (userId) sp.set('user', userId);
-  if (document.body.classList.contains('minimal')) sp.set('minimal', 'true');
+  if (prepopBase) params.prepopBase = prepopBase;
+  if (patientId) params.patient = patientId;
+  if (encounterId) params.encounter = encounterId;
+  if (userId) params.user = userId;
+  if (document.body.classList.contains('minimal')) params.minimal = 'true';
 
-  const full = sp.toString() ? `${baseUrl}?${sp.toString()}` : baseUrl;
+  const parts = Object.entries(params).map(([k, v]) => `${k}=${encodeForQueryPreservingSpecials(String(v))}`);
+  const qs = parts.join('&');
+  const full = qs ? `${baseUrl}?${qs}` : baseUrl;
   const out = el('shareUrl');
   if (out) out.value = full;
 }
@@ -430,7 +440,21 @@ el('btnClear').onclick = () => {
       return;
     }
 
-    // Kein Auto-Render → normale UI sichtbar lassen
+    // Kein Auto-Render → aber ggf. FHIR-Kontext aus Query setzen
+    const anyCtxIds = !!(patientId || encounterId || userId);
+    const effBaseNoQ = prepopBase || base || el('prepopBase')?.value?.trim() || el('fhirBase')?.value?.trim();
+    if (effBaseNoQ && anyCtxIds) {
+      // UI spiegeln & persistieren
+      if (el('prepopBase') && prepopBase) setAndPersist('prepopBase', prepopBase);
+      if (el('fhirBase') && base) setAndPersist('fhirBase', base);
+      if (el('patientId') && patientId) setAndPersist('patientId', patientId);
+      if (el('encounterId') && encounterId) setAndPersist('encounterId', encounterId);
+      if (el('userId') && userId) setAndPersist('userId', userId);
+      updateShareUrl();
+      await configureLFormsFHIRContext(effBaseNoQ, { patient: patientId, encounter: encounterId, user: userId });
+    }
+
+    // Normale UI sichtbar lassen
   } catch (e) {
     console.error(e);
     status('Auto-Render fehlgeschlagen: ' + e.message, 'err');
