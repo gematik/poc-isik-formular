@@ -26,10 +26,11 @@ Live-Demo: https://gefyra.github.io/ISiK-Questionnaire-Tooling-Demo/
     - `?user=789` → lädt `Practitioner/789` von `base`
     Diese Ressourcen werden als Launch-Context an LHC-Forms übergeben. Zusätzlich werden relative x-fhir-query Aufrufe über denselben FHIR-Server ausgeführt.
 - Eingebaute UCUM-Unterstützung (`@lhncbc/ucum-lhc`)
- - **Extraction/Export**: Zwei Buttons unter dem Formular öffnen eine Ergebnis-Seite (`result.html`) mit Tabs:
-   - „Zeige QuestionnaireResponse“ → extrahierte QuestionnaireResponse als JSON
-   - „Zeige QR + Observations“ → QuestionnaireResponse plus per SDC-Observation-Extraction erzeugte Observations
-   - Ergebnis-Seite zeigt Ressourcen als JSON (kopierbar) im Vollbild
+- **Extraction/Export**: Zwei Buttons unter dem Formular öffnen eine Ergebnis-Seite (`result.html`) mit Tabs:
+  - „Zeige QuestionnaireResponse“ → extrahierte QuestionnaireResponse als JSON
+  - „Zeige QR + Observations“ → QuestionnaireResponse plus per SDC-Observation-Extraction erzeugte Observations (nur mit LHC-Forms)
+  - Ergebnis-Seite zeigt Ressourcen als JSON (kopierbar) im Vollbild
+ - **Renderer-Auswahl**: LHC‑Forms (voll funktionsfähig) oder SMART‑Forms (@aehrc). Bei SMART‑Forms ist die Observations‑Extraction deaktiviert; QR‑Export wird schrittweise integriert.
   
 Zusätzlich:
 - Eigene Resolver-Seite `resolve.html` zur Auflösung logischer Identifier vor dem Start:
@@ -45,7 +46,7 @@ Zusätzlich:
 ## Nutzung
 
 ### Über die Benutzeroberfläche
-- Links im Panel eine **Questionnaire-URL** eingeben, oder **FHIR Base + ID**, oder direkt ein **JSON** einfügen.
+- Links im Panel eine **Questionnaire-URL** eingeben, oder **FHIR Base + ID**, oder direkt ein **JSON** einfügen. Außerdem oben den **Renderer auswählen** (LHC‑Forms oder SMART‑Forms). Bei SMART‑Forms ist die Observations‑Extraction deaktiviert.
 - Mit Klick auf **Rendern** wird das Formular im rechten Panel angezeigt.
 
 #### Bespiel zur Einbindung von extern

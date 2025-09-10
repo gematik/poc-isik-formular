@@ -18,6 +18,10 @@ function getParam(...names) {
   return null;
 }
 
+// Note: SMART-Forms integration does not require URL params. We avoid
+// renderer-specific query parameters and rely on sensible defaults and
+// heuristics (callbacks, events, and instance methods) to obtain the QR.
+
 // Minimal-Modus via URL-Parameter ?minimal=true | ?minimal=withButtons
 (() => {
   const sp = new URLSearchParams(window.location.search);
@@ -46,9 +50,25 @@ function renderQuestionnaire(q) {
   try {
     // Vor dem Rendern: Prüfe auf modifierExtension und zeige ggf. Warnung
     updateModifierWarning(q);
-    const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
-    // Prepopulation einschalten, damit z.B. observationLinkPeriod greift
-    window.LForms.Util.addFormToPage(lf, document.getElementById('renderTarget'), { prepopulate: true });
+    const ren = (document.getElementById('rendererSel')?.value || 'lhc');
+    const target = document.getElementById('renderTarget');
+    target.innerHTML = '';
+    if (ren === 'lhc') {
+      const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
+      // Prepopulation einschalten, damit z.B. observationLinkPeriod greift
+      window.LForms.Util.addFormToPage(lf, target, { prepopulate: true });
+    } else {
+      // SMART-Forms: try to lazy-load renderer and mount. Observation extraction remains disabled.
+      renderWithSmartForms(q, target).then(() => {
+        // mounted
+      }).catch((e) => {
+        console.warn('SMART-Forms Rendering fehlgeschlagen:', e);
+        const box = document.createElement('div');
+        box.className = 'warning-banner';
+        box.textContent = 'SMART-Forms Renderer konnte nicht geladen werden. Bitte stellen Sie sicher, dass @aehrc/smart-forms-renderer installiert ist.';
+        target.appendChild(box);
+      });
+    }
     setExportVisible(true);
     status('Erfolgreich gerendert ✅', 'ok');
   } catch (e) {
@@ -57,6 +77,196 @@ function renderQuestionnaire(q) {
     status('Konvertierung/Rendering fehlgeschlagen: '+e.message, 
 'err');
   }
+}
+
+async function renderWithSmartForms(questionnaire, mountEl) {
+  // Lazy import; if module provides a custom element, use it, else show a hint.
+  let mod;
+  try {
+    mod = await import('@aehrc/smart-forms-renderer');
+  } catch (e) {
+    throw new Error('Modul @aehrc/smart-forms-renderer nicht gefunden. ' + e.message);
+  }
+  _smartModule = mod;
+  // 1) Try Web Component usage; if not present, try loading WC entry points
+  let tag = customElements.get('smart-forms-renderer') ? 'smart-forms-renderer'
+           : (customElements.get('smart-forms') ? 'smart-forms' : null);
+  if (!tag) {
+    // Try a small set of known WC entry points using vite-ignore to suppress analysis
+    const wcCandidates = [
+      '@aehrc/smart-forms-renderer/web-component',
+      '@aehrc/smart-forms-renderer/dist/web-component',
+      '@aehrc/smart-forms-renderer/wc',
+      '@aehrc/smart-forms-renderer/define',
+    ];
+    for (const p of wcCandidates) {
+      try { await import(/* @vite-ignore */ p); } catch {}
+      tag = customElements.get('smart-forms-renderer') ? 'smart-forms-renderer'
+          : (customElements.get('smart-forms') ? 'smart-forms' : null);
+      if (tag) break;
+    }
+  }
+  const vals = getUiValues();
+  const effBase = getEffectivePrepopBase(vals);
+  if (tag) {
+    console.log('SMART-Forms: using custom element', tag);
+    const el = document.createElement(tag);
+    try { el.questionnaire = questionnaire; } catch {}
+    if (effBase) { try { el.fhirBaseUrl = effBase; } catch {} }
+    if (vals.ids?.patient) try { el.patientId = vals.ids.patient; } catch {}
+    if (vals.ids?.encounter) try { el.encounterId = vals.ids.encounter; } catch {}
+    if (vals.ids?.user) try { el.userId = vals.ids.user; } catch {}
+    // Listen for possible QR change events to cache latest QR
+    const evNames = [
+      'questionnaire-response-change',
+      'questionnaireResponseChange',
+      'questionnaireResponseChanged',
+      'qr-change',
+      'qrChanged',
+      'questionnaireResponseUpdated',
+    ];
+    evNames.forEach(n => {
+      el.addEventListener(n, (e) => {
+        const detail = e?.detail || e;
+        const qr = detail?.questionnaireResponse || detail?.qr || detail;
+        if (qr && typeof qr === 'object' && qr.resourceType === 'QuestionnaireResponse') {
+          _smartLastQR = qr;
+        }
+      });
+    });
+    mountEl.appendChild(el);
+    _smartRender = { mode: 'wc', element: el, reactRoot: null };
+    return;
+  }
+  // 2) Try React component export
+  const Cmp = mod?.default || mod?.SmartFormsRenderer || mod?.FormRenderer || null;
+  if (Cmp) {
+    console.log('SMART-Forms: mounting React component');
+    const React = (await import('react')).default || (await import('react'));
+    const ReactDOM = await import('react-dom/client');
+    const props = { questionnaire };
+    // Try common callback prop names to capture QR updates (handle various signatures)
+    const qrCapture = (...args) => {
+      for (const a of args) {
+        if (!a) continue;
+        if (a.resourceType === 'QuestionnaireResponse') { _smartLastQR = a; return; }
+        if (a.questionnaireResponse && a.questionnaireResponse.resourceType === 'QuestionnaireResponse') { _smartLastQR = a.questionnaireResponse; return; }
+        if (a.fhirQuestionnaireResponse && a.fhirQuestionnaireResponse.resourceType === 'QuestionnaireResponse') { _smartLastQR = a.fhirQuestionnaireResponse; return; }
+        if (a.detail && a.detail.questionnaireResponse && a.detail.questionnaireResponse.resourceType === 'QuestionnaireResponse') { _smartLastQR = a.detail.questionnaireResponse; return; }
+      }
+    };
+    const cbCandidates = [
+      'onQuestionnaireResponseChange',
+      'onQuestionnaireResponseChanged',
+      'onQuestionnaireResponseUpdated',
+      'onQrChange',
+      'onChange',      // often called with (values|state, extras)
+      'onSubmit',      // some components emit QR on submit
+      'onSave',        // some components expose save callback
+      'onResponse',
+      'onResponseChange'
+    ];
+    cbCandidates.forEach(k => {
+      props[k] = (...args) => {
+        try { console.debug('SMART callback', k, args); } catch {}
+        qrCapture(...args);
+      };
+    });
+    if (effBase) props.fhirBaseUrl = effBase;
+    if (vals.ids?.patient) props.patientId = vals.ids.patient;
+    if (vals.ids?.encounter) props.encounterId = vals.ids.encounter;
+    if (vals.ids?.user) props.userId = vals.ids.user;
+    const root = ReactDOM.createRoot(mountEl);
+    root.render(React.createElement(Cmp, props));
+    // Function components cannot be given refs (unless forwardRef). We rely on events/callbacks.
+    _smartRender = { mode: 'react', element: null, reactRoot: root };
+    // Also listen for DOM CustomEvents bubbling from inside the React tree
+    const evNames = [
+      'questionnaire-response-change',
+      'questionnaireResponseChange',
+      'questionnaireResponseChanged',
+      'qr-change',
+      'qrChanged',
+      'questionnaireResponseUpdated',
+    ];
+    evNames.forEach(n => {
+      mountEl.addEventListener(n, (e) => {
+        const detail = e?.detail || e;
+        const qr = detail?.questionnaireResponse || detail?.qr || detail;
+        if (qr && typeof qr === 'object' && qr.resourceType === 'QuestionnaireResponse') {
+          _smartLastQR = qr;
+          try { console.debug('SMART event (mountEl)', n, qr); } catch {}
+        }
+      });
+      document.addEventListener(n, (e) => {
+        const d = e?.detail || e;
+        const qr = d?.questionnaireResponse || d?.qr || d;
+        if (qr && typeof qr === 'object' && qr.resourceType === 'QuestionnaireResponse') {
+          _smartLastQR = qr;
+          try { console.debug('SMART event (document)', n, qr); } catch {}
+        }
+      }, { capture: true });
+      window.addEventListener(n, (e) => {
+        const d = e?.detail || e;
+        const qr = d?.questionnaireResponse || d?.qr || d;
+        if (qr && typeof qr === 'object' && qr.resourceType === 'QuestionnaireResponse') {
+          _smartLastQR = qr;
+          try { console.debug('SMART event (window)', n, qr); } catch {}
+        }
+      });
+    });
+    return;
+  }
+  // 3) Fallback message if nothing recognized
+  const fallback = document.createElement('div');
+  fallback.className = 'warning-banner';
+  fallback.textContent = 'SMART-Forms Modul geladen, aber keine bekannte Render-Schnittstelle gefunden. Bitte Paket-/API-Version prüfen.';
+  mountEl.appendChild(fallback);
+}
+
+async function getSmartFormsQuestionnaireResponse() {
+  if (_smartRender.mode === 'wc' && _smartRender.element) {
+    const el = _smartRender.element;
+    let qr = null;
+    try {
+      if (typeof el.getQuestionnaireResponse === 'function') {
+        const res = el.getQuestionnaireResponse();
+        qr = (res && typeof res.then === 'function') ? await res : res;
+      } else if (typeof el.exportQuestionnaireResponse === 'function') {
+        const res = el.exportQuestionnaireResponse();
+        qr = (res && typeof res.then === 'function') ? await res : res;
+      } else if (typeof el.getFhirQuestionnaireResponse === 'function') {
+        const res = el.getFhirQuestionnaireResponse();
+        qr = (res && typeof res.then === 'function') ? await res : res;
+      } else if (el.questionnaireResponse) {
+        qr = el.questionnaireResponse;
+      }
+    } catch (e) {
+      throw new Error('SMART-Forms QR-Ermittlung fehlgeschlagen: ' + (e?.message || e));
+    }
+    if (!qr && _smartLastQR) {
+      qr = _smartLastQR;
+    }
+    if (!qr || qr.resourceType !== 'QuestionnaireResponse') {
+      throw new Error('SMART-Forms stellt keine QuestionnaireResponse zur Verfügung.');
+    }
+    return qr;
+  }
+  if (_smartRender.mode === 'react') {
+    // Try module-exported getResponse first
+    try {
+      const fn = (_smartModule && (_smartModule.getResponse || _smartModule.default?.getResponse)) || (typeof window !== 'undefined' && window.getResponse);
+      if (typeof fn === 'function') {
+        const r = fn();
+        const qr = (r && typeof r.then === 'function') ? await r : r;
+        if (qr && qr.resourceType === 'QuestionnaireResponse') return qr;
+        if (qr && qr.questionnaireResponse && qr.questionnaireResponse.resourceType === 'QuestionnaireResponse') return qr.questionnaireResponse;
+      }
+    } catch {}
+    if (_smartLastQR && _smartLastQR.resourceType === 'QuestionnaireResponse') return _smartLastQR;
+    throw new Error('Kein QuestionnaireResponse aus SMART-Forms verfügbar. Bitte sicherstellen, dass getResponse() verfügbar ist oder der Renderer QR-Callbacks/Events auslöst.');
+  }
+  throw new Error('SMART-Forms ist nicht initialisiert.');
 }
 
 const el = (id) => document.getElementById(id);
@@ -105,6 +315,7 @@ function updateShareUrl() {
   const patientId = el('patientId')?.value?.trim();
   const encounterId = el('encounterId')?.value?.trim();
   const userId = el('userId')?.value?.trim();
+  const rendererSel = document.getElementById('rendererSel')?.value || 'lhc';
 
   const params = {};
   if (fhirUrl) {
@@ -117,6 +328,7 @@ function updateShareUrl() {
   if (patientId) params.patient = patientId;
   if (encounterId) params.encounter = encounterId;
   if (userId) params.user = userId;
+  if (rendererSel && rendererSel !== 'lhc') params.renderer = rendererSel;
   if (document.body.classList.contains('minimal')) {
     params.minimal = document.body.classList.contains('minimal-withbuttons') ? 'withButtons' : 'true';
   }
@@ -130,6 +342,9 @@ function updateShareUrl() {
 
 // ---- FHIR Context / Prepopulation --------------------------------------
 let _configuredFHIRBase = null;
+let _smartRender = { mode: null, element: null, reactRoot: null };
+let _smartLastQR = null;
+let _smartModule = null;
 function createFhirClient(base, ids = {}) {
   const normBase = (base || '').replace(/\/?$/,'');
   const makeAbs = (url) => {
@@ -402,9 +617,10 @@ function buildSubjectFromUI() {
 }
 
 function buildResultPayload(includeObservations) {
+  const renVal = document.getElementById('rendererSel')?.value || 'lhc';
   if (!window.LForms?.Util?.getFormFHIRData) throw new Error('LHC-Forms nicht initialisiert. Bitte Formular rendern.');
   const subject = buildSubjectFromUI();
-  if (includeObservations) {
+  if (includeObservations && renVal === 'lhc') {
     // Use SDC extraction: returns [QuestionnaireResponse, ...Observations]
     const arr = window.LForms.Util.getFormFHIRData('QuestionnaireResponse', 'R4', undefined, { extract: true, subject });
     const list = Array.isArray(arr) ? arr : [arr].filter(Boolean);
@@ -428,8 +644,17 @@ function openResultsPage(payload) {
   window.open(url.toString(), '_blank', 'noopener');
 }
 
-function doExport(includeObservations) {
+async function doExport(includeObservations) {
   try {
+    const ren = (document.getElementById('rendererSel')?.value || 'lhc');
+    if (ren === 'smart') {
+      if (includeObservations) {
+        return status('Observation-Export ist für SMART-Forms deaktiviert.', 'err');
+      }
+      const qr = await getSmartFormsQuestionnaireResponse();
+      const meta = { generatedAt: new Date().toISOString(), includeObservations: false };
+      return openResultsPage({ questionnaireResponse: qr, observations: [], meta });
+    }
     const payload = buildResultPayload(includeObservations);
     openResultsPage(payload);
   } catch (e) {
@@ -440,9 +665,9 @@ function doExport(includeObservations) {
 
 // Hook up export buttons
 const btnExportQR = document.getElementById('btnExportQR');
-if (btnExportQR) btnExportQR.onclick = () => doExport(false);
+if (btnExportQR) btnExportQR.onclick = async () => { await doExport(false); };
 const btnExportQROBS = document.getElementById('btnExportQROBS');
-if (btnExportQROBS) btnExportQROBS.onclick = () => doExport(true);
+if (btnExportQROBS) btnExportQROBS.onclick = async () => { await doExport(true); };
 
 function setExportVisible(show) {
   const box = document.getElementById('exportActions');
@@ -450,6 +675,37 @@ function setExportVisible(show) {
   const hideForMinimal = document.body.classList.contains('minimal-nobuttons');
   if (show && !hideForMinimal) box.classList.remove('hidden');
   else box.classList.add('hidden');
+}
+
+// Renderer handling: include selection persistence and export button toggle
+(function initRendererSelection(){
+  const sel = document.getElementById('rendererSel');
+  if (!sel) return;
+  const key = STORAGE_PREFIX + 'rendererSel';
+  const qParam = (getParam('renderer')||'').toLowerCase();
+  const saved = localStorage.getItem(key);
+  if (qParam === 'smart' || qParam === 'lhc') sel.value = qParam;
+  else if (saved) sel.value = saved;
+  sel.addEventListener('change', () => { try{localStorage.setItem(key, sel.value);}catch{} updateShareUrl(); updateExportButtonsForRenderer(); });
+  // Initial export buttons state
+  updateExportButtonsForRenderer();
+})();
+
+function updateExportButtonsForRenderer(){
+  const ren = (document.getElementById('rendererSel')?.value || 'lhc');
+  const obsBtn = document.getElementById('btnExportQROBS');
+  const qrBtn = document.getElementById('btnExportQR');
+  const info = document.getElementById('smartExportInfo');
+  if (!obsBtn) return;
+  if (ren === 'smart') {
+    obsBtn.classList.add('hidden');
+    if (qrBtn) qrBtn.classList.remove('hidden');
+    if (info) info.classList.add('hidden');
+  } else {
+    obsBtn.classList.remove('hidden');
+    if (qrBtn) qrBtn.classList.remove('hidden');
+    if (info) info.classList.add('hidden');
+  }
 }
 
 // UI Handlers
