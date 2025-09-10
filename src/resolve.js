@@ -378,14 +378,17 @@ function attemptRedirect(out) {
       }
     };
   }
-  $('btnRun').onclick = async () => {
-    try {
-      const merged = { ...params, ...mergeParamsFromInputs() };
-      // normalize empties to undefined
-      Object.keys(merged).forEach(k => { if (merged[k] === '') delete merged[k]; });
-      await runResolution(merged);
-    } catch (e) { setStatus(e.message, 'err'); }
-  };
+  const runBtn = $('btnRun');
+  if (runBtn) {
+    runBtn.onclick = async () => {
+      try {
+        const merged = { ...params, ...mergeParamsFromInputs() };
+        // normalize empties to undefined
+        Object.keys(merged).forEach(k => { if (merged[k] === '') delete merged[k]; });
+        await runResolution(merged);
+      } catch (e) { setStatus(e.message, 'err'); }
+    };
+  }
 
   // If base present and at least one of pid/fid/qCanonical present, run immediately
   if (params.base && (params.pid || params.fid || params.qCanonical || initialBrowse)) {
@@ -433,3 +436,14 @@ async function fetchAllPages(firstUrl, cap = 1000) {
   }
   return items;
 }
+
+// Export helpers for tests
+export const __test__ = {
+  mdToHtml,
+  makeAbs,
+  bundleEntries,
+  getPatientName,
+  patientDetails,
+  getAccountTitle,
+  accountDetails,
+};

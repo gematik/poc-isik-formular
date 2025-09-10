@@ -17,6 +17,11 @@ export default defineConfig(({ command }) => {
           result: r(__dirname, 'result.html'),
         }
       }
+    },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: 'tests/setup.js'
     }
   }
 })

@@ -820,3 +820,15 @@ function updateModifierWarning(questionnaire) {
   box.append(document.createTextNode(suffix));
   box.style.display = '';
 }
+
+// Export selected helpers for tests
+export const __test__ = {
+  encodeForQueryPreservingSpecials,
+  collectModifierExtensionUrls,
+  getEffectivePrepopBase,
+  getPatientName,
+  patientDetails,
+  getQuestionnaireTitle,
+  questionnaireDetails,
+  createFhirClient,
+};
