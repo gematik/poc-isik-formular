@@ -26,15 +26,13 @@ jobs:
       - name: Run tests
         run: npm test -- --run
 
-      - name: Configure Git user
+      - name: Build
         if: success()
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+        run: npm run build
 
-      - name: Build and deploy to gh-pages
+      - name: Deploy to GitHub Pages
         if: success()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run deploy
-
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
