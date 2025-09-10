@@ -3,6 +3,8 @@
 Dieses Projekt ist eine **Minimal-Demo**, die zeigt, wie man mit [LHC-Forms](https://lhncbc.github.io/lforms/) FHIR Questionnaires im Browser rendert.  
 Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms.
 
+Live-Demo: https://gefyra.github.io/ISiK-Questionnaire-Tooling-Demo/
+
 ---
 
 ## Features
@@ -15,7 +17,8 @@ Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms
 - Unterstützung für **URL-Parameter**:
   - `?q=URL` oder `?questionnaire=URL` → rendert direkt und blendet den linken Panel aus
   - `?base=FHIRBase&id=QuestionnaireId` → lädt und rendert direkt
-  - `?minimal=true` → blendet Titel und den Kasten „Gerendertes Formular“ aus
+  - `?minimal=true` → Minimal-Layout ohne Export-Buttons (für schlanke Embeds)
+  - `?minimal=withButtons` → Minimal-Layout mit Export-Buttons
 - Erkennung von `modifierExtension` im Questionnaire: Bei Vorkommen wird ein roter Hinweis über dem Formular angezeigt (inkl. der Extension-URL[s])
   - Prepopulation-Support (SDC): Wenn `base` gesetzt ist, wird diese URL als FHIR-Server-Kontext genutzt. Optional können Launch-Context-IDs übergeben werden:
     - `?patient=123` → lädt `Patient/123` von `base`
@@ -23,6 +26,10 @@ Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms
     - `?user=789` → lädt `Practitioner/789` von `base`
     Diese Ressourcen werden als Launch-Context an LHC-Forms übergeben. Zusätzlich werden relative x-fhir-query Aufrufe über denselben FHIR-Server ausgeführt.
 - Eingebaute UCUM-Unterstützung (`@lhncbc/ucum-lhc`)
+ - **Extraction/Export**: Zwei Buttons unter dem Formular öffnen eine Ergebnis-Seite (`result.html`) mit Tabs:
+   - „Zeige QuestionnaireResponse“ → extrahierte QuestionnaireResponse als JSON
+   - „Zeige QR + Observations“ → QuestionnaireResponse plus per SDC-Observation-Extraction erzeugte Observations
+   - Ergebnis-Seite zeigt Ressourcen als JSON (kopierbar) im Vollbild
   
 Zusätzlich:
 - Eigene Resolver-Seite `resolve.html` zur Auflösung logischer Identifier vor dem Start:
@@ -54,17 +61,15 @@ Du kannst Questionnaires auch direkt per URL laden, ohne das linke Panel zu benu
 
 - Komplettes Questionnaire-JSON per URL:
   ```text
-  https://<USER>.github.io/<REPO>/?q=https://server/fhir/Questionnaire/123?_format=json
+  https://gefyra.github.io/ISiK-Questionnaire-Tooling-Demo/?q=https://server/fhir/Questionnaire/123?_format=json
   ```
 
 - Basis-URL + ID:
   ```text
-  https://<USER>.github.io/<REPO>/?base=https://server/fhir&id=123
+  https://gefyra.github.io/ISiK-Questionnaire-Tooling-Demo/?base=https://server/fhir&id=123
   ```
 
-Wird ein solcher Parameter übergeben, blendet die App das linke Panel automatisch aus und zeigt direkt den geladenen Questionnaire an.
-
-Optional kann zusätzlich `&minimal=true` gesetzt werden, um den Seitentitel und die Box um das gerenderte Formular auszublenden (für schlanke Embeds).
+Optional kann zusätzlich `&minimal=true` (ohne Buttons) bzw. `&minimal=withButtons` (mit Buttons) gesetzt werden, um den Seitentitel und den Rahmen um das Formular auszublenden.
 
 ---
 
@@ -110,6 +115,7 @@ LHC-Forms-Demo/
 ├── src/
 │   ├── main.js      # App-Logik, UI-Handler, Auto-Init per URL-Param
 │   ├── resolve.js   # Logik der Resolver-Seite (FHIR-Suchen, Auswahl, Redirect)
+│   ├── result.js    # Ergebnis-Seite mit Tab-JSON-Ausgabe für Export
 │   └── main.css     # Minimale Styles (helles Theme)
 ├── package.json     # Projektdefinition mit Vite und gh-pages
 └── vite.config.js   # Vite-Konfiguration (Base-Pfad für GitHub Pages)
@@ -138,6 +144,21 @@ LHC-Forms-Demo/
 
 ---
 
+## Tests
+
+Wir nutzen Vitest (mit jsdom) für Unit-Tests der Hilfsfunktionen.
+
+- Installation: `npm install`
+- Ausführen: `npm test`
+- Watch-Mode: `npm run test:watch`
+- Coverage: `npm run coverage`
+
+Die Tests liegen unter `tests/` und greifen über einen dedizierten `__test__`‑Export sowie reine Helfer in `src/lib/helpers.js` auf ausgewählte Funktionen zu. UI‑lastige und netzwerkende Funktionen werden über jsdom und Fetch‑Mocks isoliert.
+
+Hinweis: Für das Ausführen der Tests wird eine lokale Node.js‑Umgebung (empfohlen: Node 18+) benötigt.
+
+---
+
 ## Build & Deployment (GitHub Pages)
 
 1. Produktions-Build erstellen
@@ -146,15 +167,11 @@ LHC-Forms-Demo/
    ```
 
 2. Deployment auf GitHub Pages (Branch `gh-pages`)
-   ```bash
-   npm run deploy
-   ```
+   - Automatisiert über GitHub Actions: Bei `push` auf `main` werden die **Tests** ausgeführt und bei Erfolg der **Build** nach `gh-pages` veröffentlicht.
+   - Manuell (optional): `npm run deploy`
 
-3. In den Repository-Einstellungen → **Settings > Pages** den Branch `gh-pages` als Quelle auswählen.  
-   Die Demo ist dann erreichbar unter:
-   ```text
-   https://<USER>.github.io/<REPO>/
-   ```
+3. GitHub Pages konfigurieren: In den Repository-Einstellungen → **Settings > Pages** den Branch `gh-pages` als Quelle auswählen.  
+   Live-Demo: https://gefyra.github.io/ISiK-Questionnaire-Tooling-Demo/
 
 ---
 
