@@ -21,6 +21,8 @@ body.minimal #renderTarget { padding: 0; background: transparent; }
 /* Bei minimal: linken Panel ausblenden und Layout auf eine Spalte setzen */
 body.minimal #leftPanel { display: none; }
 body.minimal main { grid-template-columns: 1fr; }
+/* Variante: minimal ohne Buttons */
+body.minimal.minimal-nobuttons #exportActions { display: none !important; }
 
 header {
   padding: 1rem 1.5rem;
@@ -153,6 +155,9 @@ select {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* Align export buttons to the right in render panel */
+#exportActions { justify-content: flex-end; }
 
 .hint {
   font-size: 12px;

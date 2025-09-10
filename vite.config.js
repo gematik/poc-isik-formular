@@ -14,6 +14,7 @@ export default defineConfig(({ command }) => {
         input: {
           main: r(__dirname, 'index.html'),
           resolve: r(__dirname, 'resolve.html'),
+          result: r(__dirname, 'result.html'),
         }
       }
     }

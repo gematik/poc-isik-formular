@@ -18,11 +18,21 @@ function getParam(...names) {
   return null;
 }
 
-// Minimal-Modus via URL-Parameter ?minimal=true
+// Minimal-Modus via URL-Parameter ?minimal=true | ?minimal=withButtons
 (() => {
   const sp = new URLSearchParams(window.location.search);
-  const minimal = (sp.get('minimal') || '').toLowerCase() === 'true';
-  if (minimal) document.body.classList.add('minimal');
+  const m = (sp.get('minimal') || '').toLowerCase();
+  if (m) {
+    document.body.classList.add('minimal');
+    if (m === 'true' || m === '1' || m === 'yes' || m === 'nobuttons' || m === 'no-buttons') {
+      document.body.classList.add('minimal-nobuttons');
+    } else if (m === 'withbuttons' || m === 'buttons' || m === 'with-buttons') {
+      document.body.classList.add('minimal-withbuttons');
+    } else {
+      // Default to no buttons if unrecognized but minimal requested
+      document.body.classList.add('minimal-nobuttons');
+    }
+  }
 })();
 
 function hideLeftPanelAndExpandMain() {
@@ -39,9 +49,11 @@ function renderQuestionnaire(q) {
     const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
     // Prepopulation einschalten, damit z.B. observationLinkPeriod greift
     window.LForms.Util.addFormToPage(lf, document.getElementById('renderTarget'), { prepopulate: true });
+    setExportVisible(true);
     status('Erfolgreich gerendert ✅', 'ok');
   } catch (e) {
     console.error(e);
+    setExportVisible(false);
     status('Konvertierung/Rendering fehlgeschlagen: '+e.message, 
 'err');
   }
@@ -105,7 +117,9 @@ function updateShareUrl() {
   if (patientId) params.patient = patientId;
   if (encounterId) params.encounter = encounterId;
   if (userId) params.user = userId;
-  if (document.body.classList.contains('minimal')) params.minimal = 'true';
+  if (document.body.classList.contains('minimal')) {
+    params.minimal = document.body.classList.contains('minimal-withbuttons') ? 'withButtons' : 'true';
+  }
 
   const parts = Object.entries(params).map(([k, v]) => `${k}=${encodeForQueryPreservingSpecials(String(v))}`);
   const qs = parts.join('&');
@@ -380,6 +394,64 @@ async function loadQuestionnaireFromServer(base, id) {
   return await loadQuestionnaireFromUrl(url);
 }
 
+// --- Extraction/Export --------------------------------------------------
+function buildSubjectFromUI() {
+  const pid = document.getElementById('patientId')?.value?.trim();
+  if (pid) return { resourceType: 'Patient', id: pid };
+  return undefined;
+}
+
+function buildResultPayload(includeObservations) {
+  if (!window.LForms?.Util?.getFormFHIRData) throw new Error('LHC-Forms nicht initialisiert. Bitte Formular rendern.');
+  const subject = buildSubjectFromUI();
+  if (includeObservations) {
+    // Use SDC extraction: returns [QuestionnaireResponse, ...Observations]
+    const arr = window.LForms.Util.getFormFHIRData('QuestionnaireResponse', 'R4', undefined, { extract: true, subject });
+    const list = Array.isArray(arr) ? arr : [arr].filter(Boolean);
+    const qr = list.find(r => r && r.resourceType === 'QuestionnaireResponse') || null;
+    const observations = list.filter(r => r && r.resourceType === 'Observation');
+    const meta = { generatedAt: new Date().toISOString(), includeObservations: true };
+    return { questionnaireResponse: qr, observations, meta };
+  } else {
+    // Plain QuestionnaireResponse only
+    const qr = window.LForms.Util.getFormFHIRData('QuestionnaireResponse', 'R4', undefined, { subject });
+    const meta = { generatedAt: new Date().toISOString(), includeObservations: false };
+    return { questionnaireResponse: qr, observations: [], meta };
+  }
+}
+
+function openResultsPage(payload) {
+  const id = 'lhcResult:' + Date.now() + ':' + Math.random().toString(36).slice(2);
+  try { localStorage.setItem(id, JSON.stringify(payload)); } catch (e) { throw new Error('Speichern der Exportdaten fehlgeschlagen: ' + e.message); }
+  const url = new URL('result.html', window.location.href);
+  url.searchParams.set('k', id);
+  window.open(url.toString(), '_blank', 'noopener');
+}
+
+function doExport(includeObservations) {
+  try {
+    const payload = buildResultPayload(includeObservations);
+    openResultsPage(payload);
+  } catch (e) {
+    console.error(e);
+    status(e.message || 'Export fehlgeschlagen', 'err');
+  }
+}
+
+// Hook up export buttons
+const btnExportQR = document.getElementById('btnExportQR');
+if (btnExportQR) btnExportQR.onclick = () => doExport(false);
+const btnExportQROBS = document.getElementById('btnExportQROBS');
+if (btnExportQROBS) btnExportQROBS.onclick = () => doExport(true);
+
+function setExportVisible(show) {
+  const box = document.getElementById('exportActions');
+  if (!box) return;
+  const hideForMinimal = document.body.classList.contains('minimal-nobuttons');
+  if (show && !hideForMinimal) box.classList.remove('hidden');
+  else box.classList.add('hidden');
+}
+
 // UI Handlers
 el('btnLoadUrl').onclick = async () => {
   try {
@@ -608,6 +680,7 @@ el('btnClear').onclick = () => {
   el('renderTarget').innerHTML = '';
   updateModifierWarning(null); // Warnbox ausblenden
   status('Zurückgesetzt.');
+  setExportVisible(false);
 };
 
 // ---- Auto-Init from URL ----
