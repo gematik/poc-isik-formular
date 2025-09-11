@@ -1,4 +1,5 @@
 // Read payload from sessionStorage via key k
+import { buildIsikBerichtsBundle } from './isikBundle.js';
 const $ = (id) => document.getElementById(id);
 
 function spGet(name) { return new URLSearchParams(window.location.search).get(name); }
@@ -35,7 +36,18 @@ function buildTabs(resources) {
   resources.forEach((res, i) => {
     const btn = document.createElement('button');
     btn.className = 'tab-btn';
-    const label = res && res.resourceType ? `${res.resourceType}${res.id ? ' #' + res.id : ''}` : `Resource ${i+1}`;
+    // Detect ISiK Bericht Bundle
+    const isIsikBundle = (() => {
+      try {
+        if (res?.resourceType !== 'Bundle') return false;
+        if (Array.isArray(res?.meta?.profile) && res.meta.profile.includes('https://gematik.de/fhir/isik/StructureDefinition/ISiKBerichtBundle')) return true;
+        const tags = res?.meta?.tag || [];
+        return tags.some(t => t?.code === 'isik-bundle');
+      } catch { return false; }
+    })();
+    const label = isIsikBundle
+      ? 'ISiKBerichtBundle'
+      : (res && res.resourceType ? `${res.resourceType}${res.id ? ' #' + res.id : ''}` : `Resource ${i+1}`);
     btn.textContent = label;
     btn.setAttribute('data-for', makeId(i));
     list.appendChild(btn);
@@ -57,10 +69,35 @@ function buildTabs(resources) {
     };
     actions.appendChild(title);
     actions.appendChild(copyBtn);
+    // Optional demo hint for ISiK bundle
+    const maybeHint = (() => {
+      try {
+        if (res?.resourceType === 'Bundle' && res?.type === 'document') {
+          const tags = res?.meta?.tag || [];
+          const isIsik = tags.some(t => t?.code === 'isik-bundle');
+          if (isIsik) {
+            const info = document.createElement('div');
+            info.className = 'hint';
+            info.textContent = "Aus Demogründen wurde der KDL Typ 'AM170103 - Patientenfragebogen' für die Composition gewählt. Hier muss natürlich ein passender Code gesetzt werden";
+            return info;
+          }
+        }
+      } catch {}
+      return null;
+    })();
+
     const pre = document.createElement('pre');
     pre.className = 'json-box';
     pre.textContent = formatJSON(res);
     panel.appendChild(actions);
+    if (maybeHint) panel.appendChild(maybeHint);
+    // Fallback: also show hint when bundle is recognized via meta.profile
+    if (!maybeHint && isIsikBundle) {
+      const info = document.createElement('div');
+      info.className = 'hint';
+      info.textContent = "Aus Demogründen wurde der KDL Typ 'AM170103 - Patientenfragebogen' für die Composition gewählt. Hier muss natürlich ein passender Code gesetzt werden";
+      panel.appendChild(info);
+    }
     panel.appendChild(pre);
     panels.appendChild(panel);
   });
@@ -99,6 +136,17 @@ function buildTabs(resources) {
   const resources = [];
   if (data?.questionnaireResponse) resources.push(data.questionnaireResponse);
   if (Array.isArray(data?.observations)) resources.push(...data.observations);
+  // Build and append ISiK BerichtsBundle (Composition + entries)
+  try {
+    const isikBundle = buildIsikBerichtsBundle({
+      questionnaireResponse: data?.questionnaireResponse,
+      observations: data?.observations,
+      meta: data?.meta,
+    });
+    if (isikBundle) resources.push(isikBundle);
+  } catch (e) {
+    console.warn('ISiK BerichtsBundle konnte nicht erzeugt werden:', e?.message || e);
+  }
   if (resources.length === 0) {
     $('emptyMsg').textContent = 'Keine Ressourcen vorhanden.';
     return;

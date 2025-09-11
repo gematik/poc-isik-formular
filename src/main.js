@@ -7,6 +7,8 @@ import 'lforms/dist/lforms/fhir/R4/lformsFHIR.min.js';
 // UCUM aus npm importieren und als Global verfügbar machen (für evtl. Abhängigkeiten)
 import { UcumLhcUtils } from '@lhncbc/ucum-lhc';
 window.UcumLhcUtils = UcumLhcUtils;
+// Keep track of the last rendered Questionnaire for export metadata
+let _lastQuestionnaire = null;
 
 
 function getParam(...names) {
@@ -46,6 +48,7 @@ function renderQuestionnaire(q) {
   try {
     // Vor dem Rendern: Prüfe auf modifierExtension und zeige ggf. Warnung
     updateModifierWarning(q);
+    _lastQuestionnaire = q || null;
     const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
     // Prepopulation einschalten, damit z.B. observationLinkPeriod greift
     window.LForms.Util.addFormToPage(lf, document.getElementById('renderTarget'), { prepopulate: true });
@@ -411,11 +414,15 @@ function buildResultPayload(includeObservations) {
     const qr = list.find(r => r && r.resourceType === 'QuestionnaireResponse') || null;
     const observations = list.filter(r => r && r.resourceType === 'Observation');
     const meta = { generatedAt: new Date().toISOString(), includeObservations: true };
+    const qTitle = _lastQuestionnaire?.title || _lastQuestionnaire?.name || _lastQuestionnaire?.id;
+    if (qTitle) meta.questionnaireTitle = qTitle;
     return { questionnaireResponse: qr, observations, meta };
   } else {
     // Plain QuestionnaireResponse only
     const qr = window.LForms.Util.getFormFHIRData('QuestionnaireResponse', 'R4', undefined, { subject });
     const meta = { generatedAt: new Date().toISOString(), includeObservations: false };
+    const qTitle = _lastQuestionnaire?.title || _lastQuestionnaire?.name || _lastQuestionnaire?.id;
+    if (qTitle) meta.questionnaireTitle = qTitle;
     return { questionnaireResponse: qr, observations: [], meta };
   }
 }
