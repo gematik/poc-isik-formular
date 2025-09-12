@@ -549,11 +549,43 @@ function patientDetails(p){
 function getQuestionnaireTitle(q){ return q.title || q.name || q.id || '(Questionnaire)'; }
 function questionnaireDetails(q){ const rows=[]; if (q.id) rows.push(['ID', q.id]); if (q.version) rows.push(['Version', q.version]); if (q.url) rows.push(['URL', q.url]); return rows; }
 
+// Encounter Anzeige-Helfer
+function getEncounterTitle(e){
+  const bits = [];
+  if (e.id) bits.push(`Encounter ${e.id}`);
+  if (e.status) bits.push(String(e.status));
+  const cls = e.class || e.classCode; // class in R4; fallback just in case
+  if (cls && (cls.display || cls.code)) bits.push(cls.display || cls.code);
+  return bits.join(' • ') || '(Encounter)';
+}
+function encounterDetails(e){
+  const rows=[];
+  if (e.id) rows.push(['ID', e.id]);
+  if (e.status) rows.push(['Status', e.status]);
+  const cls = e.class || e.classCode;
+  if (cls && (cls.display || cls.code)) rows.push(['Klasse', cls.display || cls.code]);
+  const st = e.period?.start; const en = e.period?.end;
+  if (st || en) rows.push(['Zeitraum', [st||'', en||''].filter(Boolean).join(' → ')]);
+  if (e.subject?.reference || e.subject?.display) rows.push(['Subject', e.subject.display || e.subject.reference]);
+  if (Array.isArray(e.identifier) && e.identifier.length) {
+    const idents = e.identifier.map(i => `${i.system||''}|${i.value||''}`).filter(Boolean);
+    if (idents.length) rows.push(['Identifier', idents.join(', ')]);
+  }
+  if (e.serviceType?.coding?.length) {
+    const stc = e.serviceType.coding[0];
+    rows.push(['Service', stc.display || stc.code || '']);
+  } else if (e.serviceType?.text) {
+    rows.push(['Service', e.serviceType.text]);
+  }
+  return rows;
+}
+
 function renderChoicesModal(items, kind, onSelect){
   const container = $('browseResults'); if (!container) return;
   container.replaceChildren();
   const toHeaderAndRows = (res) => {
     if (kind === 'Patient') return [getPatientName(res), patientDetails(res)];
+    if (kind === 'Encounter') return [getEncounterTitle(res), encounterDetails(res)];
     return [getQuestionnaireTitle(res), questionnaireDetails(res)];
   };
   items.forEach((res) => {
@@ -615,12 +647,43 @@ async function openPatientBrowser(){
   } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
 }
 
+async function openEncounterBrowser(){
+  const vals = getUiValues();
+  const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
+  if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
+  const pid = (vals.ids.patient || '').trim();
+  bmOpen('Encounters durchsuchen', `Quelle: ${effBase}${pid ? ` • Patient: ${pid}` : ''}`);
+  try {
+    bmStatus('Lade Encounters …');
+    const sep = effBase.endsWith('/') ? '' : '/';
+    const elems = '_elements=id,subject,period,class,status,serviceType,identifier';
+    let search = `Encounter?_count=100&${elems}`;
+    if (pid) {
+      // Referenzwert für Suche bestimmen: akzeptiere bereits vollständige Referenzen
+      const ref = pid.includes('/') ? pid : `Patient/${pid}`;
+      search += `&patient=${encodeURIComponent(ref)}`;
+    }
+    const url = effBase + sep + search;
+    const items = await fetchAllPages(url);
+    if (!items.length) { bmStatus('Keine Encounters gefunden.', 'err'); return; }
+    bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
+    renderChoicesModal(items, 'Encounter', (sel) => {
+      setAndPersist('encounterId', sel.id);
+      updateShareUrl();
+      bmClose();
+    });
+  } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
+}
+
 // Browse-Buttons → Popups
 const btnBrowse = document.getElementById('btnBrowse');
 if (btnBrowse) btnBrowse.onclick = openQuestionnaireBrowser;
 
 const btnBrowsePatient = document.getElementById('btnBrowsePatient');
 if (btnBrowsePatient) btnBrowsePatient.onclick = openPatientBrowser;
+
+const btnBrowseEncounter = document.getElementById('btnBrowseEncounter');
+if (btnBrowseEncounter) btnBrowseEncounter.onclick = openEncounterBrowser;
 
 el('btnRenderJson').onclick = async () => {
   try {
@@ -835,6 +898,8 @@ export const __test__ = {
   getEffectivePrepopBase,
   getPatientName,
   patientDetails,
+  getEncounterTitle,
+  encounterDetails,
   getQuestionnaireTitle,
   questionnaireDetails,
   createFhirClient,

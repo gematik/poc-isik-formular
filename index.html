@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="de">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,6 +9,7 @@
   <link href="src/resolve.css" rel="stylesheet" />
   <script type="module" src="/src/main.js"></script>
 </head>
+
 <body>
   <header>
     <h1>🎛️ LHC-Forms Minimal Demo - FHIR Questionnaire Renderer</h1>
@@ -19,10 +21,13 @@
         <div class="stack collapsible collapsed" data-title="Questionnaire per URL">
           <label for="fhirUrl">Questionnaire per URL (FHIR JSON)</label>
           <div class="row">
-            <input id="fhirUrl" type="text" placeholder="z.B. http://localhost:8080/fhir/Questionnaire/123?_format=json" />
+            <input id="fhirUrl" type="text"
+              placeholder="z.B. http://localhost:8080/fhir/Questionnaire/123?_format=json" />
             <button id="btnLoadUrl" class="btn">Laden</button>
           </div>
-          <div class="hint">Tipp: Mit HAPI lokal: <code>http://localhost:8080/fhir/Questionnaire/{id}?_format=json</code></div>
+          <div class="hint">Tipp: Mit HAPI lokal:
+            <code>http://localhost:8080/fhir/Questionnaire/{id}?_format=json</code>
+          </div>
         </div>
 
         <div class="stack collapsible" data-title="Vom FHIR-Server per ID laden">
@@ -46,7 +51,8 @@
               <input id="qId" type="text" placeholder="Questionnaire ID" />
             </div>
             <button id="btnLoadServer" class="btn">Fetch</button>
-            <button id="btnBrowse" class="btn secondary" title="Questionnaires auf dem Server durchsuchen">Browse</button>
+            <button id="btnBrowse" class="btn secondary"
+              title="Questionnaires auf dem Server durchsuchen">Browse</button>
           </div>
         </div>
 
@@ -59,13 +65,18 @@
               <label for="patientId">Patient ID</label>
               <input id="patientId" type="text" placeholder="Patient ID" />
             </div>
-            <button id="btnBrowsePatient" class="btn secondary" title="Patienten auf dem Server durchsuchen">Browse</button>
+            <button id="btnBrowsePatient" class="btn secondary"
+              title="Patienten auf dem Server durchsuchen">Browse</button>
           </div>
-          <div class="row row2">
+          <div class="row row3">
             <div class="stack">
               <label for="encounterId">Encounter ID</label>
               <input id="encounterId" type="text" placeholder="Encounter ID" />
             </div>
+            <button id="btnBrowseEncounter" class="btn secondary"
+              title="Encounters auf dem Server durchsuchen">Browse</button>
+          </div>
+          <div class="row row3 hidden">
             <div class="stack">
               <label for="userId">User/Practitioner ID</label>
               <input id="userId" type="text" placeholder="User/Practitioner ID" />
@@ -74,7 +85,8 @@
           <div class="row">
             <button id="btnSetContext" class="btn secondary">Kontext setzen</button>
           </div>
-          <div class="hint">Nutzt die FHIR Base aus dem Feld oben, falls die URL hier leer gelassen wird. Kontext beeinflusst Prepopulation (SDC).</div>
+          <div class="hint">Nutzt die FHIR Base aus dem Feld oben, falls die URL hier leer gelassen wird. Kontext
+            beeinflusst Prepopulation (SDC).</div>
         </div>
 
         <div class="stack collapsible" data-title="Questionnaire JSON">
@@ -95,7 +107,8 @@
             <input id="shareUrl" type="text" readonly />
             <button id="btnCopyUrl" class="btn secondary" title="In Zwischenablage kopieren">Kopieren</button>
           </div>
-          <div class="hint">Beinhaltet q oder base/id, optional prepopBase sowie Patient/Encounter/User und minimal.</div>
+          <div class="hint">Beinhaltet q oder base/id, optional prepopBase sowie Patient/Encounter/User und minimal.
+          </div>
         </div>
       </div>
     </section>
@@ -105,8 +118,10 @@
       <div class="body">
         <div id="renderTarget"></div>
         <div id="exportActions" class="actions hidden" style="margin-top: 10px;">
-          <button id="btnExportQR" class="btn secondary" title="Öffnet die extrahierte QuestionnaireResponse in neuem Tab">Zeige QuestionnaireResponse</button>
-          <button id="btnExportQROBS" class="btn" title="Öffnet QuestionnaireResponse und Observations in neuem Tab">Zeige QR + Observations</button>
+          <button id="btnExportQR" class="btn secondary"
+            title="Öffnet die extrahierte QuestionnaireResponse in neuem Tab">Zeige QuestionnaireResponse</button>
+          <button id="btnExportQROBS" class="btn"
+            title="Öffnet QuestionnaireResponse und Observations in neuem Tab">Zeige QR + Observations</button>
         </div>
       </div>
     </section>
@@ -131,4 +146,5 @@
   <script type="module" src="/src/footer.js"></script>
 
 </body>
+
 </html>
