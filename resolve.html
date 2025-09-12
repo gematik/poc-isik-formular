@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resolver – FHIR Lookup</title>
+    <script type="module" crossorigin src="/poc-isik-formular/assets/resolve-DL3c5OLF.js"></script>
+    <link rel="modulepreload" crossorigin href="/poc-isik-formular/assets/main-3C7Y8jW-.js">
+    <link rel="stylesheet" crossorigin href="/poc-isik-formular/assets/main-DwUMvTao.css">
+    <link rel="stylesheet" crossorigin href="/poc-isik-formular/assets/resolve-C4nX2P5b.css">
+  </head>
+<body>
+  <header>
+    <h1>🔎 FHIR Resolver - Patient/Account/Questionnaire</h1>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Parameter</h2>
+      <div class="body grid">
+        <div class="row">
+          <input id="base" type="text" placeholder="FHIR Base URL, z.B. http://localhost:8080/fhir" />
+          <button id="btnRun" class="btn">Suchen</button>
+        </div>
+        <div class="two-col">
+          <input id="pid" type="text" placeholder="pid - Patient.identifier (optional)" /><br>
+          <input id="fid" type="text" placeholder="fid - Account.identifier (optional)" />
+        </div>
+        <input id="qCanonical" type="text" placeholder="qCanonical - Questionnaire canonical (url[|version]) (optional)" />
+        <div class="two-col">
+          <input id="prepopBase" type="text" placeholder="prepopBase (optional)" /><br>
+          <input id="encounter" type="text" placeholder="encounter (optional)" />
+        </div>
+        <div class="two-col">
+          <input id="patient" type="text" placeholder="patient (optional, FHIR-ID)" /><br>
+          <input id="user" type="text" placeholder="user (optional, FHIR-ID)" />
+        </div>
+        <div class="two-col">
+          <input id="id" type="text" placeholder="Questionnaire id (optional)" /><br>
+          <input id="q" type="text" placeholder="Questionnaire URL q (optional)" />
+        </div>
+        <label class="hint">Tipp: Parameter können auch via URL-Query gesetzt werden, diese Felder spiegeln den aktuellen Stand.</label>
+        <div id="status" class="hint"></div>
+        <div class="stack">
+          <label for="shareUrl">Link mit aktuellen Parametern</label>
+          <div class="row">
+            <input id="shareUrl" type="text" readonly />
+            <button id="btnCopyUrl" class="btn secondary" title="In Zwischenablage kopieren">Kopieren</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="resultsPanel">
+      <h2>Suchergebnisse</h2>
+      <div class="body grid">
+        <div id="patientResults" class="results-grid"></div>
+        <div id="accountResults" class="results-grid"></div>
+        <div id="questionnaireResults" class="results-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Resolver-Seite für ID-Ermittlung und Weiterleitung zur Demo.
+  </footer>
+</body>
+</html>
