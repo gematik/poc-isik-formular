@@ -440,10 +440,23 @@ function openResultsPage(payload) {
     const msg = { type: 'lhc-export', key: id, payload };
     const tgt = new URL(url.toString());
     const targetOrigin = tgt.origin;
-    if (win && typeof win.postMessage === 'function') {
-      // origin einschränken (gleiches Origin wie result.html)
-      win.postMessage(msg, targetOrigin);
-    }
+    let attempts = 0;
+    const maxAttempts = 30; // ~6 Sekunden bei 200ms
+    const send = () => {
+      attempts += 1;
+      try {
+        if (!win || win.closed) return clearInterval(timer);
+        if (typeof win.postMessage === 'function') {
+          win.postMessage(msg, targetOrigin);
+        }
+        if (attempts >= maxAttempts) clearInterval(timer);
+      } catch {
+        if (attempts >= maxAttempts) clearInterval(timer);
+      }
+    };
+    // Sofort senden und mehrfach nachschicken, bis Listener bereit ist
+    const timer = setInterval(send, 200);
+    send();
   } catch {}
 }
 
