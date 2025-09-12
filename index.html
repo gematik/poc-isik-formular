@@ -137,7 +137,16 @@
       <div class="modal-body">
         <div id="browseInfo" class="hint"></div>
         <div id="browseStatus" class="hint"></div>
+        <div id="browseSearchRow" class="row" style="gap:8px; align-items:center;">
+          <input id="browseSearch" type="text" placeholder="Suche" />
+          <button id="browseSearchBtn" class="btn secondary">Suchen</button>
+        </div>
         <div id="browseResults" class="results-grid"></div>
+        <div id="browseControls" class="actions" style="margin-top: 8px; display: none; gap: 8px; align-items: center;">
+          <button id="browsePrev" class="btn secondary" disabled>Zurück</button>
+          <span id="browsePage" class="hint">Seite 1</span>
+          <button id="browseNext" class="btn" disabled>Weiter</button>
+        </div>
       </div>
     </div>
   </div>

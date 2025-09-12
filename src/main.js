@@ -500,6 +500,9 @@ el('btnLoadServer').onclick = async () => {
   } catch (e) { status(e.message, 'err'); }
 };
 
+// Globale Seitengröße für Browse-Listen
+const BROWSE_COUNT = 9;
+
 // --- Browse als Popup ----------------------------------------------------
 function $(id){ return document.getElementById(id); }
 
@@ -511,6 +514,20 @@ function bmOpen(title, info){
   $('browseInfo').textContent = info || '';
   $('browseResults')?.replaceChildren();
   bmStatus('', '');
+  // Reset paging controls (hidden by default)
+  const ctrls = $('browseControls');
+  const prev = $('browsePrev');
+  const next = $('browseNext');
+  const page = $('browsePage');
+  if (ctrls) ctrls.style.display = 'none';
+  if (prev) prev.disabled = true;
+  if (next) next.disabled = true;
+  if (page) page.textContent = 'Seite 1';
+  // Reset search widgets
+  const sInput = $('browseSearch');
+  const sBtn = $('browseSearchBtn');
+  if (sInput) { sInput.value = ''; sInput.placeholder = 'Suche'; }
+  if (sBtn) { sBtn.disabled = false; }
   ov.classList.remove('hidden');
   $('browseClose')?.focus();
 }
@@ -613,7 +630,7 @@ async function openQuestionnaireBrowser(){
   try {
     bmStatus('Lade Questionnaires …');
     const sep = base.endsWith('/') ? '' : '/';
-    const search = `Questionnaire?_count=100&_elements=id,title,name,version,description,url`;
+    const search = `Questionnaire?_count=${BROWSE_COUNT}&_elements=id,title,name,version,description,url`;
     const url = base + sep + search;
     const items = await fetchAllPages(url);
     if (!items.length) { bmStatus('Keine Questionnaires gefunden.', 'err'); return; }
@@ -626,25 +643,197 @@ async function openQuestionnaireBrowser(){
   } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
 }
 
+// Paged Questionnaire browser using BROWSE_COUNT and next link
+async function openQuestionnaireBrowserPaged(){
+  const base = el('fhirBase')?.value?.trim();
+  if (!base) { status('Bitte Base-URL angeben.', 'err'); return; }
+  const sep = base.endsWith('/') ? '' : '/';
+  const baseQuery = `Questionnaire?_count=${BROWSE_COUNT}&_elements=id,title,name,version,description,url`;
+
+  // Open modal first to reset search field
+  bmOpen('Questionnaires durchsuchen', `Quelle: ${base}`);
+
+  const sInput = $('browseSearch');
+  const sBtn = $('browseSearchBtn');
+  if (sInput) { sInput.placeholder = 'Titel suchen...'; }
+  const buildFirstUrl = (term) => {
+    const t = (term || '').trim();
+    const extra = t ? `&title:contains=${encodeURIComponent(t)}` : '';
+    return base + sep + baseQuery + extra;
+  };
+  const firstUrl = buildFirstUrl(sInput?.value || '');
+  const ctrls = $('browseControls');
+  const prevBtn = $('browsePrev');
+  const nextBtn = $('browseNext');
+  const pageEl = $('browsePage');
+  if (ctrls) ctrls.style.display = '';
+
+  let currentUrl = firstUrl;
+  let nextUrl = null;
+  const prevStack = [];
+  let pageNum = 1;
+
+  async function load(url) {
+    try {
+      bmStatus('Lade Questionnaires ...');
+      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
+      if (nextBtn) nextBtn.disabled = true;
+      const bundle = await fetchFHIR(url);
+      const items = bundleEntries(bundle);
+      if (!items.length) {
+        bmStatus('Keine Questionnaires gefunden.', 'err');
+        renderChoicesModal([], 'Questionnaire', () => {});
+      } else {
+        bmStatus(`${items.length} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`, 'ok');
+        renderChoicesModal(items, 'Questionnaire', (sel) => {
+          setAndPersist('qId', sel.id);
+          updateShareUrl();
+          bmClose();
+        });
+      }
+      const linkNext = (bundle.link||[]).find(l => l.relation === 'next')?.url || null;
+      nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
+      if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
+      if (nextBtn) nextBtn.disabled = !nextUrl;
+      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
+    } catch (e) {
+      bmStatus(e.message || 'Fehler bei der Suche', 'err');
+    }
+  }
+
+  if (prevBtn) prevBtn.onclick = async () => {
+    if (prevStack.length === 0) return;
+    const url = prevStack.pop();
+    pageNum = Math.max(1, pageNum - 1);
+    currentUrl = url;
+    await load(currentUrl);
+  };
+  if (nextBtn) nextBtn.onclick = async () => {
+    if (!nextUrl) return;
+    prevStack.push(currentUrl);
+    pageNum += 1;
+    currentUrl = nextUrl;
+    await load(currentUrl);
+  };
+
+  // Run search from input/button
+  const runSearch = async () => {
+    const term = sInput?.value || '';
+    prevStack.length = 0;
+    pageNum = 1;
+    currentUrl = buildFirstUrl(term);
+    await load(currentUrl);
+  };
+  if (sBtn) sBtn.onclick = runSearch;
+  if (sInput) sInput.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); } };
+  if (sInput) sInput.oninput = () => {
+    const term = sInput.value || '';
+    // Auto-suche bei >3 Zeichen oder wenn geleert
+    clearTimeout(sInput.__debounce);
+    sInput.__debounce = setTimeout(() => {
+      if (term.length === 0 || term.length > 3) runSearch();
+    }, 350);
+  };
+
+  await load(currentUrl);
+}
+
 async function openPatientBrowser(){
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
+
+  const sep = effBase.endsWith('/') ? '' : '/';
+  const elems = '_elements=id,name,birthDate,gender,identifier';
+  const baseQuery = `Patient?_count=${BROWSE_COUNT}&${elems}`;
+
+  // Open modal first to reset search field
   bmOpen('Patienten durchsuchen', `Quelle: ${effBase}`);
-  try {
-    bmStatus('Lade Patienten …');
-    const sep = effBase.endsWith('/') ? '' : '/';
-    const search = `Patient?_count=100&_elements=id,name,birthDate,gender,identifier`;
-    const url = effBase + sep + search;
-    const items = await fetchAllPages(url);
-    if (!items.length) { bmStatus('Keine Patienten gefunden.', 'err'); return; }
-    bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
-    renderChoicesModal(items, 'Patient', (sel) => {
-      setAndPersist('patientId', sel.id);
-      updateShareUrl();
-      bmClose();
-    });
-  } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
+
+  const sInput = $('browseSearch');
+  const sBtn = $('browseSearchBtn');
+  if (sInput) { sInput.placeholder = 'Name suchen...'; }
+  const buildFirstUrl = (term) => {
+    const t = (term || '').trim();
+    const extra = t ? `&name=${encodeURIComponent(t)}` : '';
+    return effBase + sep + baseQuery + extra;
+  };
+  const firstUrl = buildFirstUrl(sInput?.value || '');
+  const ctrls = $('browseControls');
+  const prevBtn = $('browsePrev');
+  const nextBtn = $('browseNext');
+  const pageEl = $('browsePage');
+  if (ctrls) ctrls.style.display = '';
+
+  let currentUrl = firstUrl;
+  let nextUrl = null;
+  const prevStack = [];
+  let pageNum = 1;
+
+  async function load(url) {
+    try {
+      bmStatus('Lade Patienten …');
+      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
+      if (nextBtn) nextBtn.disabled = true;
+
+      const bundle = await fetchFHIR(url);
+      const items = bundleEntries(bundle);
+      if (!items.length) {
+        bmStatus('Keine Patienten gefunden.', 'err');
+        renderChoicesModal([], 'Patient', () => {});
+      } else {
+        bmStatus(`${items.length} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`, 'ok');
+        renderChoicesModal(items, 'Patient', (sel) => {
+          setAndPersist('patientId', sel.id);
+          updateShareUrl();
+          bmClose();
+        });
+      }
+      const linkNext = (bundle.link||[]).find(l => l.relation === 'next')?.url || null;
+      nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
+      if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
+      if (nextBtn) nextBtn.disabled = !nextUrl;
+      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
+    } catch (e) {
+      bmStatus(e.message || 'Fehler bei der Suche', 'err');
+    }
+  }
+
+  if (prevBtn) prevBtn.onclick = async () => {
+    if (prevStack.length === 0) return;
+    const url = prevStack.pop();
+    pageNum = Math.max(1, pageNum - 1);
+    currentUrl = url;
+    await load(currentUrl);
+  };
+  if (nextBtn) nextBtn.onclick = async () => {
+    if (!nextUrl) return;
+    prevStack.push(currentUrl);
+    pageNum += 1;
+    currentUrl = nextUrl;
+    await load(currentUrl);
+  };
+
+  // Run search from input/button
+  const runSearch = async () => {
+    const term = sInput?.value || '';
+    prevStack.length = 0;
+    pageNum = 1;
+    currentUrl = buildFirstUrl(term);
+    await load(currentUrl);
+  };
+  if (sBtn) sBtn.onclick = runSearch;
+  if (sInput) sInput.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); } };
+  if (sInput) sInput.oninput = () => {
+    const term = sInput.value || '';
+    // Auto-suche bei >3 Zeichen oder wenn geleert
+    clearTimeout(sInput.__debounce);
+    sInput.__debounce = setTimeout(() => {
+      if (term.length === 0 || term.length > 3) runSearch();
+    }, 350);
+  };
+
+  await load(currentUrl);
 }
 
 async function openEncounterBrowser(){
@@ -657,7 +846,7 @@ async function openEncounterBrowser(){
     bmStatus('Lade Encounters …');
     const sep = effBase.endsWith('/') ? '' : '/';
     const elems = '_elements=id,subject,period,class,status,serviceType,identifier';
-    let search = `Encounter?_count=100&${elems}`;
+    let search = `Encounter?_count=${BROWSE_COUNT}&${elems}`;
     if (pid) {
       // Referenzwert für Suche bestimmen: akzeptiere bereits vollständige Referenzen
       const ref = pid.includes('/') ? pid : `Patient/${pid}`;
@@ -677,7 +866,7 @@ async function openEncounterBrowser(){
 
 // Browse-Buttons → Popups
 const btnBrowse = document.getElementById('btnBrowse');
-if (btnBrowse) btnBrowse.onclick = openQuestionnaireBrowser;
+if (btnBrowse) btnBrowse.onclick = openQuestionnaireBrowserPaged;
 
 const btnBrowsePatient = document.getElementById('btnBrowsePatient');
 if (btnBrowsePatient) btnBrowsePatient.onclick = openPatientBrowser;
