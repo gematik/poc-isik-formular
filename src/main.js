@@ -432,7 +432,19 @@ function openResultsPage(payload) {
   try { localStorage.setItem(id, JSON.stringify(payload)); } catch (e) { throw new Error('Speichern der Exportdaten fehlgeschlagen: ' + e.message); }
   const url = new URL('result.html', window.location.href);
   url.searchParams.set('k', id);
-  window.open(url.toString(), '_blank', 'noopener');
+  // Öffne neues Fenster/Tab und versuche zusätzlich, die Daten direkt zu übermitteln.
+  // Hintergrund: In iframes oder bei partitioniertem Storage kann localStorage nicht lesbar sein.
+  const win = window.open(url.toString(), '_blank');
+  try {
+    // Fallback: Daten direkt per postMessage an das Result-Fenster senden
+    const msg = { type: 'lhc-export', key: id, payload };
+    const tgt = new URL(url.toString());
+    const targetOrigin = tgt.origin;
+    if (win && typeof win.postMessage === 'function') {
+      // origin einschränken (gleiches Origin wie result.html)
+      win.postMessage(msg, targetOrigin);
+    }
+  } catch {}
 }
 
 function doExport(includeObservations) {

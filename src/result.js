@@ -119,15 +119,8 @@ function buildTabs(resources) {
   tabs.classList.remove('hidden');
 }
 
-(function init() {
-  const { data, error } = tryLoadPayload();
+function renderPayload(data) {
   const metaLine = $('metaLine');
-  if (error) {
-    metaLine.textContent = error;
-    metaLine.classList.add('err');
-    $('emptyMsg').textContent = 'Keine Daten zum Anzeigen.';
-    return;
-  }
   const parts = [];
   if (data?.meta?.generatedAt) parts.push('Erzeugt: ' + new Date(data.meta.generatedAt).toLocaleString());
   if (data?.meta?.includeObservations) parts.push('Inklusive Observations'); else parts.push('Nur QuestionnaireResponse');
@@ -152,4 +145,41 @@ function buildTabs(resources) {
     return;
   }
   buildTabs(resources);
+}
+
+(function init() {
+  const { data, error } = tryLoadPayload();
+  const metaLine = $('metaLine');
+  if (error) {
+    // Fallback: auf postMessage vom opener warten (z. B. bei iframe/partitioniertem Storage)
+    metaLine.textContent = 'Warte auf Exportdaten …';
+    metaLine.classList.remove('err');
+    let settled = false;
+    const handler = (ev) => {
+      try {
+        if (!ev || !ev.data) return;
+        if (ev.origin !== window.location.origin) return; // nur gleiches Origin akzeptieren
+        if (ev.data?.type !== 'lhc-export') return;
+        settled = true;
+        window.removeEventListener('message', handler);
+        const payload = ev.data?.payload;
+        if (!payload) throw new Error('Keine Nutzdaten empfangen.');
+        renderPayload(payload);
+      } catch (e) {
+        metaLine.textContent = 'Exportdaten konnten nicht empfangen werden: ' + (e?.message || e);
+        metaLine.classList.add('err');
+        $('emptyMsg').textContent = 'Keine Daten zum Anzeigen.';
+      }
+    };
+    window.addEventListener('message', handler);
+    // Optionales Timeout als Rückfallebene
+    setTimeout(() => {
+      if (settled) return;
+      metaLine.textContent = error || 'Keine Daten gefunden.';
+      metaLine.classList.add('err');
+      $('emptyMsg').textContent = 'Keine Daten zum Anzeigen.';
+    }, 5000);
+    return;
+  }
+  renderPayload(data);
 })();
