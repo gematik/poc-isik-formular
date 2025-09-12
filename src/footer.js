@@ -1,6 +1,13 @@
 export async function injectFooter(rootId = 'footer-root') {
   const mount = document.getElementById(rootId);
   if (!mount) return;
+  // Hide footer entirely in minimal mode
+  try {
+    if (document?.body?.classList?.contains('minimal')) {
+      mount.style.display = 'none';
+      return;
+    }
+  } catch {}
   try {
     const base = (import.meta && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : '/';
     // Build URL relative to Vite base to work under subpaths (e.g., GitHub Pages)
@@ -15,4 +22,3 @@ export async function injectFooter(rootId = 'footer-root') {
 }
 
 injectFooter();
-
