@@ -7,7 +7,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 export default defineConfig(({ command }) => {
   const isBuild = command === 'build'
   return {
-    base: isBuild ? '/ISiK-Questionnaire-Tooling-Demo/' : '/',
+    base: isBuild ? '/poc-isik-formular/' : '/',
     build: {
       rollupOptions: {
         // Explicitly include multi-page entries
