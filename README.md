@@ -3,7 +3,7 @@
 Dieses Projekt ist eine **Minimal-Demo**, die zeigt, wie man mit [LHC-Forms](https://lhncbc.github.io/lforms/) FHIR Questionnaires im Browser rendert.  
 Es basiert auf **Vite** und nutzt die **WebComponent/Classic API** von LHC-Forms.
 
-Live-Demo: https://gematik.github.io/ISiK-Questionnaire-Tooling-Demo/
+Live-Demo: https://gematik.github.io/poc-isik-formular/
 
 ---
 
@@ -53,7 +53,7 @@ Zusätzlich:
 Hier genutzt im ISiK IG des Formular-Moduls
 ```
 <iframe
-  src="https://gematik.github.io/ISiK-Questionnaire-Tooling-Demo/?q=https://fhir.simplifier.net/isik-stufe-5/Questionnaire/QuestionnaireDemo&minimal=true" style="width:100%; height:800px; border:none; display:block;"></iframe>
+  src="https://gematik.github.io/poc-isik-formular/?q=https://fhir.simplifier.net/isik-stufe-5/Questionnaire/QuestionnaireDemo&minimal=true" style="width:100%; height:800px; border:none; display:block;"></iframe>
 ```
 
 ### Über URL-Parameter
@@ -61,12 +61,12 @@ Du kannst Questionnaires auch direkt per URL laden, ohne das linke Panel zu benu
 
 - Komplettes Questionnaire-JSON per URL:
   ```text
-  https://gematik.github.io/ISiK-Questionnaire-Tooling-Demo/?q=https://server/fhir/Questionnaire/123?_format=json
+  https://gematik.github.io/poc-isik-formular/?q=https://server/fhir/Questionnaire/123?_format=json
   ```
 
 - Basis-URL + ID:
   ```text
-  https://gematik.github.io/ISiK-Questionnaire-Tooling-Demo/?base=https://server/fhir&id=123
+  https://gematik.github.io/poc-isik-formular/?base=https://server/fhir&id=123
   ```
 
 Optional kann zusätzlich `&minimal=true` (ohne Buttons) bzw. `&minimal=withButtons` (mit Buttons) gesetzt werden, um den Seitentitel und den Rahmen um das Formular auszublenden.
