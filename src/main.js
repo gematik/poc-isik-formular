@@ -296,6 +296,7 @@ updateShareUrl();
 const FHIR_BASE_PRESETS = {
   hl7: 'https://fhir.hl7.de/fhir',
   simplifier: 'https://fhir.simplifier.net/isik-stufe-5',
+  miiPro: "https://fhir.simplifier.net/MII-Erweiterungsmodul-PRO-2025"
 };
 
 function applyFhirBasePreset(preset) {
@@ -568,7 +569,14 @@ async function fetchFHIR(url) {
   if (!res.ok) throw new Error('HTTP '+res.status+' für '+url);
   return res.json();
 }
-function bundleEntries(bundle) { if (!bundle || bundle.resourceType !== 'Bundle') return []; return (bundle.entry||[]).map(e=>e && (e.resource||e)).filter(Boolean); }
+function bundleEntries(bundle) {
+  if (!bundle || bundle.resourceType !== 'Bundle') return [];
+  return (bundle.entry || [])
+    .map(e => e && (e.resource || e))
+    .filter(Boolean)
+    // Do not surface OperationOutcome entries in browse results
+    .filter(res => res && res.resourceType !== 'OperationOutcome');
+}
 async function fetchAllPages(firstUrl, cap = 1000) {
   const items=[]; let url=firstUrl; let guard=0;
   while (url && guard < cap) {
@@ -657,7 +665,7 @@ async function openQuestionnaireBrowser(){
     const sep = base.endsWith('/') ? '' : '/';
     const search = `Questionnaire?_count=${BROWSE_COUNT}&_elements=id,title,name,version,description,url`;
     const url = base + sep + search;
-    const items = await fetchAllPages(url);
+    const items = (await fetchAllPages(url)).filter(r => r && r.resourceType === 'Questionnaire');
     if (!items.length) { bmStatus('Keine Questionnaires gefunden.', 'err'); return; }
     bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
     renderChoicesModal(items, 'Questionnaire', (sel) => {
@@ -683,7 +691,7 @@ async function openQuestionnaireBrowserPaged(){
   if (sInput) { sInput.placeholder = 'Titel suchen...'; }
   const buildFirstUrl = (term) => {
     const t = (term || '').trim();
-    const extra = t ? `&title:contains=${encodeURIComponent(t)}` : '';
+    const extra = t ? `&title=${encodeURIComponent(t)}` : '';
     return base + sep + baseQuery + extra;
   };
   const firstUrl = buildFirstUrl(sInput?.value || '');
@@ -704,7 +712,7 @@ async function openQuestionnaireBrowserPaged(){
       if (prevBtn) prevBtn.disabled = prevStack.length === 0;
       if (nextBtn) nextBtn.disabled = true;
       const bundle = await fetchFHIR(url);
-      const items = bundleEntries(bundle);
+      const items = bundleEntries(bundle).filter(r => r && r.resourceType === 'Questionnaire');
       if (!items.length) {
         bmStatus('Keine Questionnaires gefunden.', 'err');
         renderChoicesModal([], 'Questionnaire', () => {});
@@ -802,7 +810,7 @@ async function openPatientBrowser(){
       if (nextBtn) nextBtn.disabled = true;
 
       const bundle = await fetchFHIR(url);
-      const items = bundleEntries(bundle);
+      const items = bundleEntries(bundle).filter(r => r && r.resourceType === 'Patient');
       if (!items.length) {
         bmStatus('Keine Patienten gefunden.', 'err');
         renderChoicesModal([], 'Patient', () => {});
@@ -878,7 +886,7 @@ async function openEncounterBrowser(){
       search += `&patient=${encodeURIComponent(ref)}`;
     }
     const url = effBase + sep + search;
-    const items = await fetchAllPages(url);
+    const items = (await fetchAllPages(url)).filter(r => r && r.resourceType === 'Encounter');
     if (!items.length) { bmStatus('Keine Encounters gefunden.', 'err'); return; }
     bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
     renderChoicesModal(items, 'Encounter', (sel) => {
