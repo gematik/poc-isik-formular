@@ -11,6 +11,17 @@ body {
   color: #000;
 }
 
+/* Global Demo-Hinweis (gelb hinterlegt, ganz oben) */
+.demo-banner {
+  background: #fff3cd; /* hellgelb */
+  color: #856404;
+  border: 1px solid #ffeeba;
+  border-left: 4px solid #f0ad4e;
+  padding: 10px 14px;
+  text-align: center;
+  font-size: 14px;
+}
+
 /* --- Minimal-Modus ----------------------------------------------------- */
 /* Wird per body.minimal aktiviert (siehe main.js) */
 body.minimal header { display: none; }
@@ -18,6 +29,8 @@ body.minimal #renderPanel { border: none; background: transparent; }
 body.minimal #renderPanel h2 { display: none; }
 body.minimal #renderPanel .body { padding: 0; }
 body.minimal #renderTarget { padding: 0; background: transparent; }
+/* Demo-Banner im Minimal-Modus ausblenden */
+body.minimal .demo-banner { display: none !important; }
 /* Bei minimal: linken Panel ausblenden und Layout auf eine Spalte setzen */
 body.minimal #leftPanel { display: none; }
 body.minimal main { grid-template-columns: 1fr; }
