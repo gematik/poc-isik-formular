@@ -691,7 +691,7 @@ async function openQuestionnaireBrowserPaged(){
   if (sInput) { sInput.placeholder = 'Titel suchen...'; }
   const buildFirstUrl = (term) => {
     const t = (term || '').trim();
-    const extra = t ? `&title=${encodeURIComponent(t)}` : '';
+    const extra = t ? `&title:contains=${encodeURIComponent(t)}` : '';
     return base + sep + baseQuery + extra;
   };
   const firstUrl = buildFirstUrl(sInput?.value || '');
