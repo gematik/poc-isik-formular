@@ -885,7 +885,7 @@ async function openQuestionnaireBrowser(){
 }
 
 // Paged Questionnaire browser using BROWSE_COUNT and next link
-async function openQuestionnaireBrowserPaged(){
+async function openQuestionnaireBrowserPaged() {
   const base = el('fhirBase')?.value?.trim();
   if (!base) { status('Bitte Base-URL angeben.', 'err'); return; }
   const sep = base.endsWith('/') ? '' : '/';
@@ -913,7 +913,7 @@ async function openQuestionnaireBrowserPaged(){
   });
 }
 
-async function openPatientBrowser(){
+async function openPatientBrowser() {
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
@@ -982,11 +982,10 @@ async function openPatientBrowser(){
   });
 }
 
-async function openEncounterBrowser(){
+async function openEncounterBrowser() {
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
-
   const smartCtx = _smartSession?.context || {};
   const smartPatientRef = smartCtx.patient || null;
   let pid = (vals.ids.patient || '').trim();
