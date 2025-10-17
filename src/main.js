@@ -789,7 +789,7 @@ async function openPagedBrowser({
   const pageEl = $('browsePage');
   if (ctrls) ctrls.style.display = '';
 
-  const defaultResultMsg = (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`;
+  const defaultResultMsg = (count) => `${count} Treffer auf dieser Seite. Auswahl zum Uebernehmen klicken.`;
   const autoPredicate = autoSearchPredicate || ((term) => term.length === 0 || term.length > 3);
 
   let currentUrl = buildFirstUrl(sInput?.value || '');
@@ -875,7 +875,7 @@ async function openQuestionnaireBrowser(){
     const url = base + sep + search;
     const items = (await fetchAllPages(url)).filter(r => r && r.resourceType === 'Questionnaire');
     if (!items.length) { bmStatus('Keine Questionnaires gefunden.', 'err'); return; }
-    bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
+    bmStatus(`${items.length} Treffer gefunden. Auswahl zum Uebernehmen klicken.`, 'ok');
     renderChoicesModal(items, 'Questionnaire', (sel) => {
       setAndPersist('qId', sel.id);
       updateShareUrl();
@@ -885,7 +885,7 @@ async function openQuestionnaireBrowser(){
 }
 
 // Paged Questionnaire browser using BROWSE_COUNT and next link
-async function openQuestionnaireBrowserPaged() {
+async function openQuestionnaireBrowserPaged(){
   const base = el('fhirBase')?.value?.trim();
   if (!base) { status('Bitte Base-URL angeben.', 'err'); return; }
   const sep = base.endsWith('/') ? '' : '/';
@@ -904,7 +904,6 @@ async function openQuestionnaireBrowserPaged() {
     messages: {
       loading: 'Lade Questionnaires ...',
       empty: 'Keine Questionnaires gefunden.',
-      results: (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`,
     },
     onSelect(sel) {
       setAndPersist('qId', sel.id);
@@ -912,95 +911,9 @@ async function openQuestionnaireBrowserPaged() {
       bmClose();
     },
   });
-  // Open modal first to reset search field
-  bmOpen('Questionnaires durchsuchen', `Quelle: ${base}`);
-
-  const sInput = $('browseSearch');
-  const sBtn = $('browseSearchBtn');
-  if (sInput) { sInput.placeholder = 'Titel suchen...'; }
-  const buildFirstUrl = (term) => {
-    const t = (term || '').trim();
-    const extra = t ? `&title:contains=${encodeURIComponent(t)}` : '';
-    return base + sep + baseQuery + extra;
-  };
-  const firstUrl = buildFirstUrl(sInput?.value || '');
-  const ctrls = $('browseControls');
-  const prevBtn = $('browsePrev');
-  const nextBtn = $('browseNext');
-  const pageEl = $('browsePage');
-  if (ctrls) ctrls.style.display = '';
-
-  let currentUrl = firstUrl;
-  let nextUrl = null;
-  const prevStack = [];
-  let pageNum = 1;
-
-  async function load(url) {
-    try {
-      bmStatus('Lade Questionnaires ...');
-      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
-      if (nextBtn) nextBtn.disabled = true;
-      const bundle = await fetchFHIR(url);
-      const items = bundleEntries(bundle).filter(r => r && r.resourceType === 'Questionnaire');
-      if (!items.length) {
-        bmStatus('Keine Questionnaires gefunden.', 'err');
-        renderChoicesModal([], 'Questionnaire', () => { });
-      } else {
-        bmStatus(`${items.length} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`, 'ok');
-        renderChoicesModal(items, 'Questionnaire', (sel) => {
-          setAndPersist('qId', sel.id);
-          updateShareUrl();
-          bmClose();
-        });
-      }
-      const linkNext = (bundle.link || []).find(l => l.relation === 'next')?.url || null;
-      nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
-      if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
-      if (nextBtn) nextBtn.disabled = !nextUrl;
-      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
-    } catch (e) {
-      bmStatus(e.message || 'Fehler bei der Suche', 'err');
-    }
-  }
-
-  if (prevBtn) prevBtn.onclick = async () => {
-    if (prevStack.length === 0) return;
-    const url = prevStack.pop();
-    pageNum = Math.max(1, pageNum - 1);
-    currentUrl = url;
-    await load(currentUrl);
-  };
-  if (nextBtn) nextBtn.onclick = async () => {
-    if (!nextUrl) return;
-    prevStack.push(currentUrl);
-    pageNum += 1;
-    currentUrl = nextUrl;
-    await load(currentUrl);
-  };
-
-  // Run search from input/button
-  const runSearch = async () => {
-    const term = sInput?.value || '';
-    prevStack.length = 0;
-    pageNum = 1;
-    currentUrl = buildFirstUrl(term);
-    await load(currentUrl);
-  };
-  if (sBtn) sBtn.onclick = runSearch;
-  if (sInput) sInput.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); } };
-  if (sInput) sInput.oninput = () => {
-    const term = sInput.value || '';
-    // Auto-suche bei >3 Zeichen oder wenn geleert
-    clearTimeout(sInput.__debounce);
-    sInput.__debounce = setTimeout(() => {
-      if (term.length === 0 || term.length > 3) runSearch();
-    }, 350);
-  };
-
-  await load(currentUrl);
 }
 
-async function openPatientBrowser() {
+async function openPatientBrowser(){
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
@@ -1009,6 +922,43 @@ async function openPatientBrowser() {
   const elems = '_elements=id,name,birthDate,gender,identifier';
   const baseQuery = `Patient?_count=${BROWSE_COUNT}&${elems}`;
 
+  const smartCtx = _smartSession?.context || {};
+  const smartPatientRef = smartCtx.patient || null;
+  if (smartPatientRef) {
+    bmOpen('Patienten durchsuchen', `Quelle: ${effBase}`);
+    const ctrls = $('browseControls');
+    const sInput = $('browseSearch');
+    const sBtn = $('browseSearchBtn');
+    const prevBtn = $('browsePrev');
+    const nextBtn = $('browseNext');
+    if (ctrls) ctrls.style.display = 'none';
+    if (sBtn) sBtn.disabled = true;
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
+    if (sInput) {
+      sInput.disabled = true;
+      sInput.value = '';
+      sInput.placeholder = 'SMART Patient-Kontext aktiv';
+    }
+    try {
+      bmStatus('SMART Patient wird geladen ...', 'ok');
+      const refPath = smartPatientRef.includes('/') ? smartPatientRef : `Patient/${smartPatientRef}`;
+      const patient = await fetchFHIR(effBase + sep + refPath);
+      if (patient && patient.resourceType === 'Patient') {
+        bmStatus('SMART Launch stellt diesen Patientenkontext bereit.', 'ok');
+        renderChoicesModal([patient], 'Patient', (sel) => {
+          setAndPersist('patientId', sel.id);
+          updateShareUrl();
+          bmClose();
+        });
+      } else {
+        bmStatus('Patient aus SMART-Kontext konnte nicht geladen werden.', 'err');
+      }
+    } catch (e) {
+      bmStatus(e?.message || 'Fehler beim Laden des SMART-Patients', 'err');
+    }
+    return;
+  }
 
   return openPagedBrowser({
     modalTitle: 'Patienten durchsuchen',
@@ -1023,7 +973,6 @@ async function openPatientBrowser() {
     messages: {
       loading: 'Lade Patienten ...',
       empty: 'Keine Patienten gefunden.',
-      results: (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`,
     },
     onSelect(sel) {
       setAndPersist('patientId', sel.id);
@@ -1033,13 +982,19 @@ async function openPatientBrowser() {
   });
 }
 
-async function openEncounterBrowser() {
+async function openEncounterBrowser(){
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
 
-  const pid = (vals.ids.patient || '').trim();
+  const smartCtx = _smartSession?.context || {};
+  const smartPatientRef = smartCtx.patient || null;
+  let pid = (vals.ids.patient || '').trim();
+  if (!pid && smartPatientRef) {
+    pid = smartPatientRef.includes('/') ? smartPatientRef.split('/').pop() : smartPatientRef;
+  }
   const patientRef = pid ? (pid.includes('/') ? pid : `Patient/${pid}`) : '';
+  const patientLabel = pid || smartPatientRef || '';
 
   const sep = effBase.endsWith('/') ? '' : '/';
   const elems = '_elements=id,subject,period,class,status,serviceType,identifier';
@@ -1048,7 +1003,7 @@ async function openEncounterBrowser() {
 
   return openPagedBrowser({
     modalTitle: 'Encounters durchsuchen',
-    modalSubtitle: `Quelle: ${effBase}${pid ? ` • Patient: ${pid}` : ''}`,
+    modalSubtitle: `Quelle: ${effBase}${patientLabel ? ` - Patient: ${patientLabel}` : ''}`,
     placeholder: 'Identifier suchen...',
     resourceType: 'Encounter',
     buildFirstUrl(term) {
@@ -1059,7 +1014,6 @@ async function openEncounterBrowser() {
     messages: {
       loading: 'Lade Encounters ...',
       empty: 'Keine Encounters gefunden.',
-      results: (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`,
     },
     onSelect(sel) {
       setAndPersist('encounterId', sel.id);
@@ -1068,7 +1022,6 @@ async function openEncounterBrowser() {
     },
   });
 }
-
 // Browse-Buttons �� Popups
 const btnBrowse = document.getElementById('btnBrowse');
 if (btnBrowse) btnBrowse.onclick = openQuestionnaireBrowserPaged;
