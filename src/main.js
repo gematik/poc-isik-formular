@@ -6,9 +6,21 @@ import 'lforms/dist/lforms/fhir/R4/lformsFHIR.min.js';
 
 // UCUM aus npm importieren und als Global verfügbar machen (für evtl. Abhängigkeiten)
 import { UcumLhcUtils } from '@lhncbc/ucum-lhc';
+import {
+  readPendingLaunch,
+  clearPendingLaunch,
+  readSmartSession,
+  saveSmartSession,
+  requestSmartAccessToken,
+  buildSmartSession,
+  isSessionExpired,
+  clearSmartSession,
+} from './lib/smart.js';
 window.UcumLhcUtils = UcumLhcUtils;
 // Keep track of the last rendered Questionnaire for export metadata
 let _lastQuestionnaire = null;
+let _smartSession = null;
+let _smartReadyPromise = null;
 
 
 function getParam(...names) {
@@ -44,6 +56,15 @@ function hideLeftPanelAndExpandMain() {
   if (mainEl) mainEl.style.gridTemplateColumns = '1fr';
 }
 
+const normalizeBaseUrl = (url) => (url || '').replace(/\/+$/, '');
+function getSmartAuthHeader(targetBase) {
+  if (!_smartSession?.accessToken) return null;
+  const sessionBase = normalizeBaseUrl(_smartSession.iss);
+  const compareBase = normalizeBaseUrl(targetBase);
+  if (!sessionBase || !compareBase || sessionBase !== compareBase) return null;
+  const tokenType = _smartSession.tokenType || 'Bearer';
+  return `${tokenType} ${_smartSession.accessToken}`;
+}
 function renderQuestionnaire(q) {
   try {
     // Vor dem Rendern: Prüfe auf modifierExtension und zeige ggf. Warnung
@@ -57,14 +78,13 @@ function renderQuestionnaire(q) {
   } catch (e) {
     console.error(e);
     setExportVisible(false);
-    status('Konvertierung/Rendering fehlgeschlagen: '+e.message, 
-'err');
+    status('Konvertierung/Rendering fehlgeschlagen: ' + e.message,
+      'err');
   }
 }
 
 const el = (id) => document.getElementById(id);
-const status = (msg, cls) => { const s = el('status'); s.className = cls||''; s.textContent = msg||''; };
-
+const status = (msg, cls) => { const s = el('status'); s.className = cls || ''; s.textContent = msg || ''; };
 // --- UI Helpers -----------------------------------------------------------
 function getUiValues() {
   const fhirUrl = el('fhirUrl')?.value?.trim() || '';
@@ -80,10 +100,11 @@ function getUiValues() {
 }
 
 function getEffectivePrepopBase(vals) {
-  return (vals.prepopBase || vals.fhirBase || '').trim() || null;
+  return (vals.prepopBase || vals.fhirBase || _smartSession?.iss || '').trim() || null;
 }
 
 async function configureFromUI() {
+  await _smartReadyPromise;
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals);
   if (!effBase) return { ok: false, messages: { base: 'Keine FHIR Base angegeben' }, results: {} };
@@ -134,10 +155,11 @@ function updateShareUrl() {
 // ---- FHIR Context / Prepopulation --------------------------------------
 let _configuredFHIRBase = null;
 function createFhirClient(base, ids = {}) {
-  const normBase = (base || '').replace(/\/?$/,'');
+  const normBase = normalizeBaseUrl(base);
+  const getAuthorizationHeader = () => getSmartAuthHeader(normBase);
   const makeAbs = (url) => {
     if (/^https?:/i.test(url)) return url;
-    return normBase + '/' + url.replace(/^\//,'');
+    return normBase + '/' + url.replace(/^\//, '');
   };
   const doRequest = async (arg) => {
     let url, opts = {};
@@ -165,14 +187,18 @@ function createFhirClient(base, ids = {}) {
         opts.body = JSON.stringify(opts.body);
       }
     } else if (method === 'GET') {
-      // Some servers reject GET with a body → strip it
+      // Some servers reject GET with a body �� strip it
       delete opts.body;
     }
-    // Nur FHIR JSON anfragen (GET ohne Body)
-    opts.headers['Accept'] = 'application/fhir+json';
-    const res = await fetch(u.toString(), opts);
-    if (!res.ok) throw new Error('FHIR request failed: ' + res.status + ' ' + u.toString());
-    return res.json();
+      // Nur FHIR JSON anfragen (GET ohne Body)
+      opts.headers['Accept'] = 'application/fhir+json';
+      const authHeader = getAuthorizationHeader();
+      if (authHeader && !opts.headers.Authorization && !opts.headers.authorization) {
+        opts.headers.Authorization = authHeader;
+      }
+      const res = await fetch(u.toString(), opts);
+      if (!res.ok) throw new Error('FHIR request failed: ' + res.status + ' ' + u.toString());
+      return res.json();
   };
   const patientScopedRequest = async (arg) => {
     if (!ids.patient) return doRequest(arg);
@@ -215,6 +241,10 @@ function createFhirClient(base, ids = {}) {
   return {
     request: doRequest,
     getFhirVersion,
+    getAuthorizationHeader,
+    accessToken: _smartSession?.accessToken || null,
+    tokenType: _smartSession?.tokenType || 'Bearer',
+    fhirBase: normBase,
     patient: stub('Patient', ids.patient, true),
     encounter: stub('Encounter', ids.encounter),
     user: stub('Practitioner', ids.user)
@@ -225,6 +255,9 @@ async function configureLFormsFHIRContext(base, ids = {}) {
   const result = { ok: true, results: { patient: 'skipped', encounter: 'skipped', user: 'skipped' }, messages: {} };
   if (!base) { result.ok = false; result.messages.base = 'Keine FHIR Base angegeben'; return result; }
   const client = createFhirClient(base, ids);
+  const authHeader = client.getAuthorizationHeader ? client.getAuthorizationHeader() : null;
+  if (authHeader) client.authHeader = authHeader;
+  client.smartSession = _smartSession;
   const vars = {};
   const load = async (key, type, idVal) => {
     if (!idVal) { result.results[key] = 'skipped'; return; }
@@ -275,7 +308,7 @@ function initPersistentInput(id) {
   const saved = localStorage.getItem(key);
   if (saved !== null) input.value = saved;
   input.addEventListener('input', () => {
-    try { localStorage.setItem(key, input.value); } catch {}
+    try { localStorage.setItem(key, input.value); } catch { }
     updateShareUrl();
   });
 }
@@ -284,14 +317,62 @@ function setAndPersist(id, value) {
   const input = el(id);
   if (!input) return;
   input.value = value;
-  try { localStorage.setItem(STORAGE_PREFIX + id, value); } catch {}
+  try { localStorage.setItem(STORAGE_PREFIX + id, value); } catch { }
 }
 
+function applySmartContextToUi(session) {
+  if (!session) return;
+  const ctx = session.context || {};
+  if (session.iss) {
+    setAndPersist('fhirBase', session.iss);
+    setAndPersist('prepopBase', session.iss);
+  }
+  if (ctx.patient) setAndPersist('patientId', ctx.patient);
+  if (ctx.encounter) setAndPersist('encounterId', ctx.encounter);
+  if (ctx.user) setAndPersist('userId', ctx.user);
+  updateShareUrl();
+}
+async function completeSmartLaunch() {
+  let session = readSmartSession();
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    if (code) {
+      const pending = readPendingLaunch();
+      if (!pending) throw new Error('SMART Launch konnte nicht abgeschlossen werden: kein gespeicherter Zustand.');
+      if (pending.state !== state) throw new Error('SMART Launch abgebrochen: state Parameter stimmt nicht.');
+      const tokenResponse = await requestSmartAccessToken(pending, code);
+      session = buildSmartSession(pending, tokenResponse);
+      saveSmartSession(session);
+      clearPendingLaunch();
+      ['code', 'state', 'iss', 'launch'].forEach((key) => params.delete(key));
+      const newQuery = params.toString();
+      const newUrl = `${window.location.origin}${window.location.pathname}${newQuery ? `?${newQuery}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, '', newUrl);
+      status('SMART Launch abgeschlossen. Zugriffstoken erhalten.', 'ok');
+    } else if (session && isSessionExpired(session)) {
+      status('SMART Sitzung ist abgelaufen. Bitte erneut starten.', 'err');
+      clearSmartSession();
+      session = null;
+    }
+  } catch (err) {
+    console.error('SMART Launch error', err);
+    status('SMART Launch fehlgeschlagen: ' + (err?.message || err), 'err');
+    clearPendingLaunch();
+    clearSmartSession();
+    session = null;
+  }
+  _smartSession = session;
+  applySmartContextToUi(session);
+  return session;
+}
 // Felder initialisieren
-['fhirUrl','fhirBase','qId','prepopBase','patientId','encounterId','userId'].forEach(initPersistentInput);
+['fhirUrl', 'fhirBase', 'qId', 'prepopBase', 'patientId', 'encounterId', 'userId'].forEach(initPersistentInput);
 // initial befüllen
 updateShareUrl();
 
+_smartReadyPromise = completeSmartLaunch();
 // Presets für FHIR Base Auswahl
 const FHIR_BASE_PRESETS = {
   hl7: 'https://fhir.hl7.de/fhir',
@@ -309,12 +390,12 @@ function applyFhirBasePreset(preset) {
     baseInput.style.display = '';
     baseInput.disabled = false;
     baseInput.readOnly = false;
-    baseInput.placeholder = 'FHIR Base URL, z. B. http://localhost:8080/fhir';
+    baseInput.placeholder = 'FHIR Base URL, z.B. http://localhost:8080/fhir';
     baseInput.focus();
   } else if (known) {
     // Setze bekannten Wert und verstecke freies Feld
     baseInput.value = known;
-    try { localStorage.setItem('persist:fhirBase', known); } catch {}
+    try { localStorage.setItem('persist:fhirBase', known); } catch { }
     updateShareUrl();
     // Feld sichtbar und bearbeitbar anzeigen (nicht read-only)
     baseInput.style.display = '';
@@ -349,7 +430,7 @@ if (presetSel) {
 }
 
 // Collapsible stacks on the left panel
-(function initCollapsibles(){
+(function initCollapsibles() {
   const stacks = Array.from(document.querySelectorAll('#leftPanel .body > .stack.collapsible'));
   stacks.forEach((stack, idx) => {
     // Build header
@@ -357,7 +438,7 @@ if (presetSel) {
     header.className = 'col-header';
     const title = document.createElement('div');
     title.className = 'title';
-    title.textContent = stack.dataset.title || `Abschnitt ${idx+1}`;
+    title.textContent = stack.dataset.title || `Abschnitt ${idx + 1}`;
     const chev = document.createElement('div');
     chev.className = 'chev';
     chev.textContent = '▾';
@@ -380,22 +461,36 @@ if (presetSel) {
     header.addEventListener('click', () => {
       const isCollapsed = stack.classList.toggle('collapsed');
       chev.textContent = isCollapsed ? '▸' : '▾';
-      try { localStorage.setItem(storageKey, isCollapsed ? '1' : '0'); } catch {}
+      try { localStorage.setItem(storageKey, isCollapsed ? '1' : '0'); } catch { }
     });
   });
 })();
 
-async function loadQuestionnaireFromUrl(url) {
-  status('Lade Questionnaire von URL …');
-  const res = await fetch(url, { headers: { 'Accept': 'application/fhir+json' } });
-  if (!res.ok) throw new Error('HTTP '+res.status+' beim Laden von '+url);
+async function loadQuestionnaireFromUrl(url, baseForAuth) {
+  await _smartReadyPromise;
+  status('Lade Questionnaire von URL ...');
+  const headers = { 'Accept': 'application/fhir+json' };
+  let authBase = baseForAuth ? normalizeBaseUrl(baseForAuth) : null;
+  const sessionBase = _smartSession?.iss ? normalizeBaseUrl(_smartSession.iss) : null;
+  if (!authBase) {
+    const isAbsolute = /^https?:/i.test(url);
+    if (!isAbsolute && sessionBase) {
+      authBase = sessionBase;
+    } else if (sessionBase && (url === sessionBase || url.startsWith(sessionBase + '/'))) {
+      authBase = sessionBase;
+    }
+  }
+  const authHeader = authBase ? getSmartAuthHeader(authBase) : null;
+  if (authHeader) headers.Authorization = authHeader;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' beim Laden von ' + url);
   return await res.json();
 }
 
 async function loadQuestionnaireFromServer(base, id) {
   const sep = base.endsWith('/') ? '' : '/';
   const url = base + sep + 'Questionnaire/' + encodeURIComponent(id);
-  return await loadQuestionnaireFromUrl(url);
+  return await loadQuestionnaireFromUrl(url, base);
 }
 
 // --- Extraction/Export --------------------------------------------------
@@ -458,7 +553,7 @@ function openResultsPage(payload) {
     // Sofort senden und mehrfach nachschicken, bis Listener bereit ist
     const timer = setInterval(send, 200);
     send();
-  } catch {}
+  } catch { }
 }
 
 function doExport(includeObservations) {
@@ -517,7 +612,7 @@ el('btnLoadServer').onclick = async () => {
   try {
     const base = el('fhirBase').value.trim();
     const id = el('qId').value.trim();
-    if (!base || !id) return status('Bitte Base‑URL und ID angeben.', 'err');
+    if (!base || !id) return status('Bitte Base-URL und ID angeben.', 'err');
     // Kontext aus UI übernehmen
     await configureFromUI();
     const q = await loadQuestionnaireFromServer(base, id);
@@ -530,10 +625,10 @@ el('btnLoadServer').onclick = async () => {
 const BROWSE_COUNT = 9;
 
 // --- Browse als Popup ----------------------------------------------------
-function $(id){ return document.getElementById(id); }
+function $(id) { return document.getElementById(id); }
 
-function bmStatus(msg, cls){ const s=$('browseStatus'); if (!s) return; s.className = 'hint ' + (cls||''); s.textContent = msg||''; }
-function bmOpen(title, info){
+function bmStatus(msg, cls) { const s = $('browseStatus'); if (!s) return; s.className = 'hint ' + (cls || ''); s.textContent = msg || ''; }
+function bmOpen(title, info) {
   const ov = $('browseModal');
   if (!ov) return;
   $('browseTitle').textContent = title || 'Suche';
@@ -557,7 +652,7 @@ function bmOpen(title, info){
   ov.classList.remove('hidden');
   $('browseClose')?.focus();
 }
-function bmClose(){ const ov = $('browseModal'); if (ov) ov.classList.add('hidden'); }
+function bmClose() { const ov = $('browseModal'); if (ov) ov.classList.add('hidden'); }
 $('browseClose')?.addEventListener('click', bmClose);
 // Close on ESC
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') bmClose(); });
@@ -565,10 +660,25 @@ document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') bmClose(
 $('browseModal')?.addEventListener('click', (ev) => { if (ev.target === $('browseModal')) bmClose(); });
 
 async function fetchFHIR(url) {
-  const res = await fetch(url, { headers: { 'Accept': 'application/fhir+json' } });
-  if (!res.ok) throw new Error('HTTP '+res.status+' für '+url);
+  await _smartReadyPromise;
+  const headers = { 'Accept': 'application/fhir+json' };
+  const sessionBase = _smartSession?.iss ? normalizeBaseUrl(_smartSession.iss) : null;
+  let authBase = null;
+  if (sessionBase) {
+    const isAbsolute = /^https?:/i.test(url);
+    if (!isAbsolute) {
+      authBase = sessionBase;
+    } else if (url === sessionBase || url.startsWith(sessionBase + '/')) {
+      authBase = sessionBase;
+    }
+  }
+  const authHeader = authBase ? getSmartAuthHeader(authBase) : null;
+  if (authHeader) headers.Authorization = authHeader;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' fuer ' + url);
   return res.json();
 }
+
 function bundleEntries(bundle) {
   if (!bundle || bundle.resourceType !== 'Bundle') return [];
   return (bundle.entry || [])
@@ -578,47 +688,48 @@ function bundleEntries(bundle) {
     .filter(res => res && res.resourceType !== 'OperationOutcome');
 }
 async function fetchAllPages(firstUrl, cap = 1000) {
-  const items=[]; let url=firstUrl; let guard=0;
+  const items = []; let url = firstUrl; let guard = 0;
   while (url && guard < cap) {
     const bundle = await fetchFHIR(url);
     items.push(...bundleEntries(bundle));
-    const next = (bundle.link||[]).find(l=>l.relation==='next')?.url;
+    const next = (bundle.link || []).find(l => l.relation === 'next')?.url;
     url = next ? new URL(next, new URL(firstUrl)).toString() : null;
     guard += 1;
   }
   return items;
 }
 
-function getPatientName(p){ const names = Array.isArray(p.name) ? p.name.map(n => [n.prefix, n.given, n.family].flat().filter(Boolean).join(' ')).filter(Boolean) : []; return names[0] || '(ohne Name)'; }
-function patientDetails(p){
-  const rows=[]; if (p.id) rows.push(['ID', p.id]); if (p.birthDate) rows.push(['Geburtsdatum', p.birthDate]); if (p.gender) rows.push(['Geschlecht', p.gender]);
-  const idents = Array.isArray(p.identifier) ? p.identifier.map(i => `${i.system||''}|${i.value||''}`).filter(Boolean) : [];
+function getPatientName(p) { const names = Array.isArray(p.name) ? p.name.map(n => [n.prefix, n.given, n.family].flat().filter(Boolean).join(' ')).filter(Boolean) : []; return names[0] || '(ohne Name)'; }
+function patientDetails(p) {
+  const rows = []; if (p.id) rows.push(['ID', p.id]); if (p.birthDate) rows.push(['Geburtsdatum', p.birthDate]); if (p.gender) rows.push(['Geschlecht', p.gender]);
+  const idents = Array.isArray(p.identifier) ? p.identifier.map(i => `${i.system || ''}|${i.value || ''}`).filter(Boolean) : [];
   if (idents.length) rows.push(['Identifier', idents.join(', ')]);
   return rows;
 }
-function getQuestionnaireTitle(q){ return q.title || q.name || q.id || '(Questionnaire)'; }
-function questionnaireDetails(q){ const rows=[]; if (q.id) rows.push(['ID', q.id]); if (q.version) rows.push(['Version', q.version]); if (q.url) rows.push(['URL', q.url]); return rows; }
+
+function getQuestionnaireTitle(q) { return q.title || q.name || q.id || '(Questionnaire)'; }
+function questionnaireDetails(q) { const rows = []; if (q.id) rows.push(['ID', q.id]); if (q.version) rows.push(['Version', q.version]); if (q.url) rows.push(['URL', q.url]); return rows; }
 
 // Encounter Anzeige-Helfer
-function getEncounterTitle(e){
+function getEncounterTitle(e) {
   const bits = [];
   if (e.id) bits.push(`Encounter ${e.id}`);
   if (e.status) bits.push(String(e.status));
   const cls = e.class || e.classCode; // class in R4; fallback just in case
   if (cls && (cls.display || cls.code)) bits.push(cls.display || cls.code);
-  return bits.join(' • ') || '(Encounter)';
+  return bits.join('  ') || '(Encounter)';
 }
-function encounterDetails(e){
-  const rows=[];
+function encounterDetails(e) {
+  const rows = [];
   if (e.id) rows.push(['ID', e.id]);
   if (e.status) rows.push(['Status', e.status]);
   const cls = e.class || e.classCode;
   if (cls && (cls.display || cls.code)) rows.push(['Klasse', cls.display || cls.code]);
   const st = e.period?.start; const en = e.period?.end;
-  if (st || en) rows.push(['Zeitraum', [st||'', en||''].filter(Boolean).join(' → ')]);
+  if (st || en) rows.push(['Zeitraum', [st || '', en || ''].filter(Boolean).join(' → ')]);
   if (e.subject?.reference || e.subject?.display) rows.push(['Subject', e.subject.display || e.subject.reference]);
   if (Array.isArray(e.identifier) && e.identifier.length) {
-    const idents = e.identifier.map(i => `${i.system||''}|${i.value||''}`).filter(Boolean);
+    const idents = e.identifier.map(i => `${i.system || ''}|${i.value || ''}`).filter(Boolean);
     if (idents.length) rows.push(['Identifier', idents.join(', ')]);
   }
   if (e.serviceType?.coding?.length) {
@@ -630,7 +741,7 @@ function encounterDetails(e){
   return rows;
 }
 
-function renderChoicesModal(items, kind, onSelect){
+function renderChoicesModal(items, kind, onSelect) {
   const container = $('browseResults'); if (!container) return;
   container.replaceChildren();
   const toHeaderAndRows = (res) => {
@@ -640,11 +751,11 @@ function renderChoicesModal(items, kind, onSelect){
   };
   items.forEach((res) => {
     const [hdr, rows] = toHeaderAndRows(res);
-    const card = document.createElement('div'); card.className = 'pick-panel'; card.setAttribute('role','button'); card.setAttribute('tabindex','0');
+    const card = document.createElement('div'); card.className = 'pick-panel'; card.setAttribute('role', 'button'); card.setAttribute('tabindex', '0');
     const h3 = document.createElement('h3'); h3.textContent = hdr;
     const inner = document.createElement('div'); inner.className = 'inner';
     const kv = document.createElement('div'); kv.className = 'kv';
-    rows.forEach(([k,v]) => {
+    rows.forEach(([k, v]) => {
       const kEl = document.createElement('div'); kEl.className = 'k'; kEl.textContent = k;
       const vEl = document.createElement('div'); vEl.className = 'v'; vEl.textContent = String(v ?? '');
       kv.appendChild(kEl); kv.appendChild(vEl);
@@ -656,12 +767,12 @@ function renderChoicesModal(items, kind, onSelect){
   });
 }
 
-async function openQuestionnaireBrowser(){
+async function openQuestionnaireBrowser() {
   const base = el('fhirBase')?.value?.trim();
-  if (!base) { status('Bitte Base‑URL angeben.', 'err'); return; }
+  if (!base) { status('Bitte Base-URL angeben.', 'err'); return; }
   bmOpen('Questionnaires durchsuchen', `Quelle: ${base}`);
   try {
-    bmStatus('Lade Questionnaires …');
+    bmStatus('Lade Questionnaires ...');
     const sep = base.endsWith('/') ? '' : '/';
     const search = `Questionnaire?_count=${BROWSE_COUNT}&_elements=id,title,name,version,description,url`;
     const url = base + sep + search;
@@ -677,7 +788,7 @@ async function openQuestionnaireBrowser(){
 }
 
 // Paged Questionnaire browser using BROWSE_COUNT and next link
-async function openQuestionnaireBrowserPaged(){
+async function openQuestionnaireBrowserPaged() {
   const base = el('fhirBase')?.value?.trim();
   if (!base) { status('Bitte Base-URL angeben.', 'err'); return; }
   const sep = base.endsWith('/') ? '' : '/';
@@ -715,7 +826,7 @@ async function openQuestionnaireBrowserPaged(){
       const items = bundleEntries(bundle).filter(r => r && r.resourceType === 'Questionnaire');
       if (!items.length) {
         bmStatus('Keine Questionnaires gefunden.', 'err');
-        renderChoicesModal([], 'Questionnaire', () => {});
+        renderChoicesModal([], 'Questionnaire', () => { });
       } else {
         bmStatus(`${items.length} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`, 'ok');
         renderChoicesModal(items, 'Questionnaire', (sel) => {
@@ -724,7 +835,7 @@ async function openQuestionnaireBrowserPaged(){
           bmClose();
         });
       }
-      const linkNext = (bundle.link||[]).find(l => l.relation === 'next')?.url || null;
+      const linkNext = (bundle.link || []).find(l => l.relation === 'next')?.url || null;
       nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
       if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
       if (nextBtn) nextBtn.disabled = !nextUrl;
@@ -771,7 +882,7 @@ async function openQuestionnaireBrowserPaged(){
   await load(currentUrl);
 }
 
-async function openPatientBrowser(){
+async function openPatientBrowser() {
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
@@ -785,17 +896,48 @@ async function openPatientBrowser(){
 
   const sInput = $('browseSearch');
   const sBtn = $('browseSearchBtn');
-  if (sInput) { sInput.placeholder = 'Name suchen...'; }
+  const ctrls = $('browseControls');
+  const prevBtn = $('browsePrev');
+  const nextBtn = $('browseNext');
+  const pageEl = $('browsePage');
+  if (sInput) sInput.placeholder = 'Name suchen...';
+  const smartCtx = _smartSession?.context || {};
+  const smartPatientRef = smartCtx.patient || null;
+  if (smartPatientRef) {
+    if (ctrls) ctrls.style.display = 'none';
+    if (sBtn) sBtn.disabled = true;
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
+    if (sInput) {
+      sInput.disabled = true;
+      sInput.value = '';
+      sInput.placeholder = 'SMART Patient-Kontext aktiv';
+    }
+    try {
+      bmStatus('SMART Patient wird geladen ...', 'ok');
+      const refPath = smartPatientRef.includes('/') ? smartPatientRef : `Patient/${smartPatientRef}`;
+      const patient = await fetchFHIR(effBase + sep + refPath);
+      if (patient && patient.resourceType === 'Patient') {
+        bmStatus('SMART Launch stellt diesen Patientenkontext bereit.', 'ok');
+        renderChoicesModal([patient], 'Patient', (sel) => {
+          setAndPersist('patientId', sel.id);
+          updateShareUrl();
+          bmClose();
+        });
+      } else {
+        bmStatus('Patient aus SMART-Kontext konnte nicht geladen werden.', 'err');
+      }
+    } catch (e) {
+      bmStatus(e?.message || 'Fehler beim Laden des SMART-Patients', 'err');
+    }
+    return;
+  }
   const buildFirstUrl = (term) => {
     const t = (term || '').trim();
     const extra = t ? `&name=${encodeURIComponent(t)}` : '';
     return effBase + sep + baseQuery + extra;
   };
   const firstUrl = buildFirstUrl(sInput?.value || '');
-  const ctrls = $('browseControls');
-  const prevBtn = $('browsePrev');
-  const nextBtn = $('browseNext');
-  const pageEl = $('browsePage');
   if (ctrls) ctrls.style.display = '';
 
   let currentUrl = firstUrl;
@@ -805,7 +947,7 @@ async function openPatientBrowser(){
 
   async function load(url) {
     try {
-      bmStatus('Lade Patienten …');
+      bmStatus('Lade Patienten ...');
       if (prevBtn) prevBtn.disabled = prevStack.length === 0;
       if (nextBtn) nextBtn.disabled = true;
 
@@ -813,7 +955,7 @@ async function openPatientBrowser(){
       const items = bundleEntries(bundle).filter(r => r && r.resourceType === 'Patient');
       if (!items.length) {
         bmStatus('Keine Patienten gefunden.', 'err');
-        renderChoicesModal([], 'Patient', () => {});
+        renderChoicesModal([], 'Patient', () => { });
       } else {
         bmStatus(`${items.length} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`, 'ok');
         renderChoicesModal(items, 'Patient', (sel) => {
@@ -822,7 +964,7 @@ async function openPatientBrowser(){
           bmClose();
         });
       }
-      const linkNext = (bundle.link||[]).find(l => l.relation === 'next')?.url || null;
+      const linkNext = (bundle.link || []).find(l => l.relation === 'next')?.url || null;
       nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
       if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
       if (nextBtn) nextBtn.disabled = !nextUrl;
@@ -869,14 +1011,20 @@ async function openPatientBrowser(){
   await load(currentUrl);
 }
 
-async function openEncounterBrowser(){
+async function openEncounterBrowser() {
   const vals = getUiValues();
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
-  const pid = (vals.ids.patient || '').trim();
-  bmOpen('Encounters durchsuchen', `Quelle: ${effBase}${pid ? ` • Patient: ${pid}` : ''}`);
+  const smartCtx = _smartSession?.context || {};
+  const smartPatientRef = smartCtx.patient || null;
+  let pid = (vals.ids.patient || '').trim();
+  if (!pid && smartPatientRef) {
+    pid = smartPatientRef.includes('/') ? smartPatientRef.split('/').pop() : smartPatientRef;
+  }
+  const patientLabel = pid || smartPatientRef || '';
+  bmOpen('Encounters durchsuchen', `Quelle: ${effBase}${patientLabel ? ` • Patient: ${patientLabel}` : ''}`);
   try {
-    bmStatus('Lade Encounters …');
+    bmStatus('Lade Encounters ...');
     const sep = effBase.endsWith('/') ? '' : '/';
     const elems = '_elements=id,subject,period,class,status,serviceType,identifier';
     let search = `Encounter?_count=${BROWSE_COUNT}&${elems}`;
@@ -897,7 +1045,7 @@ async function openEncounterBrowser(){
   } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
 }
 
-// Browse-Buttons → Popups
+// Browse-Buttons �� Popups
 const btnBrowse = document.getElementById('btnBrowse');
 if (btnBrowse) btnBrowse.onclick = openQuestionnaireBrowserPaged;
 
@@ -915,7 +1063,7 @@ el('btnRenderJson').onclick = async () => {
     if (!txt) return status('Bitte Questionnaire JSON einfügen.', 'err');
     const q = JSON.parse(txt);
     renderQuestionnaire(q);
-  } catch (e) { status('JSON‑Fehler: '+e.message, 'err'); }
+  } catch (e) { status('JSON-Fehler: ' + e.message, 'err'); }
 };
 
 // Expliziter Button: Kontext setzen
@@ -952,18 +1100,20 @@ el('btnLoadSample').onclick = () => {
     item: [
       { linkId: 'name', text: 'Name', type: 'string' },
       { linkId: 'birthDate', text: 'Geburtsdatum', type: 'date' },
-      { linkId: 'gender', text: 'Geschlecht', type: 'choice', answerOption: [
-        { valueCoding: { code: 'male', display: 'männlich' }},
-        { valueCoding: { code: 'female', display: 'weiblich' }},
-        { valueCoding: { code: 'other', display: 'divers' }}
-      ]},
+      {
+        linkId: 'gender', text: 'Geschlecht', type: 'choice', answerOption: [
+          { valueCoding: { code: 'male', display: 'männlich' } },
+          { valueCoding: { code: 'female', display: 'weiblich' } },
+          { valueCoding: { code: 'other', display: 'divers' } }
+        ]
+      },
       { linkId: 'symptoms', text: 'Symptome', type: 'open-choice' },
       { linkId: 'smoker', text: 'RaucherIn?', type: 'boolean' },
       { linkId: 'height', text: 'Größe (cm)', type: 'decimal' }
     ]
   };
   el('jsonArea').value = JSON.stringify(sample, null, 2);
-  status('Beispiel geladen. Jetzt „Rendern“ klicken oder automatisch rendern …');
+  status('Beispiel geladen. Jetzt "Rendern" klicken oder automatisch rendern ...');
   renderQuestionnaire(sample);
 };
 
@@ -978,6 +1128,7 @@ el('btnClear').onclick = () => {
 // ---- Auto-Init from URL ----
 (async function initFromQuery() {
   try {
+    await _smartReadyPromise;
     // Unterstützte Parameter:
     // q, questionnaire, questionnaireUrl  -> komplette FHIR-URL
     // (optional) base + id                 -> FHIR-Basis & Ressource-ID
@@ -986,15 +1137,16 @@ el('btnClear').onclick = () => {
     const base = getParam('base');
     const prepopBase = getParam('prepopBase');
     const id = getParam('id');
-    const patientId = getParam('patient');
-    const encounterId = getParam('encounter');
-    const userId = getParam('user');
+    const smartCtx = _smartSession?.context || {};
+    const patientId = getParam('patient') || smartCtx.patient || null;
+    const encounterId = getParam('encounter') || smartCtx.encounter || null;
+    const userId = getParam('user') || smartCtx.user || smartCtx.fhirUser || null;
 
     // Wenn explizite URL vorhanden, diese nutzen
     if (qUrl) {
       if (document.body.classList.contains('minimal')) hideLeftPanelAndExpandMain();
       // FHIR-Kontext setzen: bevorzugt prepopBase (URL/UI), sonst base (URL/UI)
-      const effBase = prepopBase || base || el('prepopBase')?.value?.trim() || el('fhirBase')?.value?.trim();
+      const effBase = prepopBase || base || _smartSession?.iss || el('prepopBase')?.value?.trim() || el('fhirBase')?.value?.trim();
       if (effBase) await configureLFormsFHIRContext(effBase, { patient: patientId, encounter: encounterId, user: userId });
       const q = await loadQuestionnaireFromUrl(qUrl);
       // UI spiegeln & persistieren
@@ -1019,9 +1171,9 @@ el('btnClear').onclick = () => {
       return;
     }
 
-    // Kein Auto-Render → aber ggf. FHIR-Kontext aus Query setzen
+    // Kein Auto-Render �� aber ggf. FHIR-Kontext aus Query setzen
     const anyCtxIds = !!(patientId || encounterId || userId);
-    const effBaseNoQ = prepopBase || base || el('prepopBase')?.value?.trim() || el('fhirBase')?.value?.trim();
+    const effBaseNoQ = prepopBase || base || _smartSession?.iss || el('prepopBase')?.value?.trim() || el('fhirBase')?.value?.trim();
     if (effBaseNoQ && anyCtxIds) {
       // UI spiegeln & persistieren
       if (el('prepopBase') && prepopBase) setAndPersist('prepopBase', prepopBase);
@@ -1126,3 +1278,5 @@ export const __test__ = {
   questionnaireDetails,
   createFhirClient,
 };
+
+
