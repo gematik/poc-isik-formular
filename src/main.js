@@ -656,6 +656,103 @@ function renderChoicesModal(items, kind, onSelect){
   });
 }
 
+async function openPagedBrowser({
+  modalTitle,
+  modalSubtitle,
+  placeholder = 'Suche',
+  buildFirstUrl,
+  resourceType,
+  onSelect = () => {},
+  messages = {},
+  autoSearchPredicate,
+}) {
+  if (typeof buildFirstUrl !== 'function') throw new Error('buildFirstUrl function is required');
+  bmOpen(modalTitle, modalSubtitle);
+
+  const sInput = $('browseSearch');
+  const sBtn = $('browseSearchBtn');
+  if (sInput) { sInput.placeholder = placeholder; }
+  const ctrls = $('browseControls');
+  const prevBtn = $('browsePrev');
+  const nextBtn = $('browseNext');
+  const pageEl = $('browsePage');
+  if (ctrls) ctrls.style.display = '';
+
+  const defaultResultMsg = (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`;
+  const autoPredicate = autoSearchPredicate || ((term) => term.length === 0 || term.length > 3);
+
+  let currentUrl = buildFirstUrl(sInput?.value || '');
+  let nextUrl = null;
+  const prevStack = [];
+  let pageNum = 1;
+
+  async function load(url) {
+    try {
+      bmStatus(messages.loading || 'Lade Ergebnisse ...');
+      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
+      if (nextBtn) nextBtn.disabled = true;
+
+      const bundle = await fetchFHIR(url);
+      const items = bundleEntries(bundle).filter(r => r && r.resourceType === resourceType);
+      if (!items.length) {
+        bmStatus(messages.empty || 'Keine Ergebnisse gefunden.', 'err');
+        renderChoicesModal([], resourceType, () => {});
+      } else {
+        const msg = typeof messages.results === 'function'
+          ? messages.results(items.length)
+          : (messages.results || defaultResultMsg(items.length));
+        bmStatus(msg, 'ok');
+        renderChoicesModal(items, resourceType, onSelect);
+      }
+      const linkNext = (bundle.link || []).find(l => l.relation === 'next')?.url || null;
+      nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
+      if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
+      if (nextBtn) nextBtn.disabled = !nextUrl;
+      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
+    } catch (e) {
+      const errMsg = typeof messages.error === 'function'
+        ? messages.error(e)
+        : (messages.error || e.message || 'Fehler bei der Suche');
+      bmStatus(errMsg, 'err');
+    }
+  }
+
+  if (prevBtn) prevBtn.onclick = async () => {
+    if (prevStack.length === 0) return;
+    const url = prevStack.pop();
+    pageNum = Math.max(1, pageNum - 1);
+    currentUrl = url;
+    await load(currentUrl);
+  };
+  if (nextBtn) nextBtn.onclick = async () => {
+    if (!nextUrl) return;
+    prevStack.push(currentUrl);
+    pageNum += 1;
+    currentUrl = nextUrl;
+    await load(currentUrl);
+  };
+
+  const runSearch = async () => {
+    const term = sInput?.value || '';
+    prevStack.length = 0;
+    pageNum = 1;
+    currentUrl = buildFirstUrl(term);
+    await load(currentUrl);
+  };
+
+  if (sBtn) sBtn.onclick = runSearch;
+  if (sInput) sInput.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); } };
+  if (sInput) sInput.oninput = () => {
+    const term = sInput.value || '';
+    clearTimeout(sInput.__debounce);
+    sInput.__debounce = setTimeout(() => {
+      if (autoPredicate(term)) runSearch();
+    }, 350);
+  };
+
+  await load(currentUrl);
+}
+
 async function openQuestionnaireBrowser(){
   const base = el('fhirBase')?.value?.trim();
   if (!base) { status('Bitte Base‑URL angeben.', 'err'); return; }
@@ -683,92 +780,27 @@ async function openQuestionnaireBrowserPaged(){
   const sep = base.endsWith('/') ? '' : '/';
   const baseQuery = `Questionnaire?_count=${BROWSE_COUNT}&_elements=id,title,name,version,description,url`;
 
-  // Open modal first to reset search field
-  bmOpen('Questionnaires durchsuchen', `Quelle: ${base}`);
-
-  const sInput = $('browseSearch');
-  const sBtn = $('browseSearchBtn');
-  if (sInput) { sInput.placeholder = 'Titel suchen...'; }
-  const buildFirstUrl = (term) => {
-    const t = (term || '').trim();
-    const extra = t ? `&title:contains=${encodeURIComponent(t)}` : '';
-    return base + sep + baseQuery + extra;
-  };
-  const firstUrl = buildFirstUrl(sInput?.value || '');
-  const ctrls = $('browseControls');
-  const prevBtn = $('browsePrev');
-  const nextBtn = $('browseNext');
-  const pageEl = $('browsePage');
-  if (ctrls) ctrls.style.display = '';
-
-  let currentUrl = firstUrl;
-  let nextUrl = null;
-  const prevStack = [];
-  let pageNum = 1;
-
-  async function load(url) {
-    try {
-      bmStatus('Lade Questionnaires ...');
-      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
-      if (nextBtn) nextBtn.disabled = true;
-      const bundle = await fetchFHIR(url);
-      const items = bundleEntries(bundle).filter(r => r && r.resourceType === 'Questionnaire');
-      if (!items.length) {
-        bmStatus('Keine Questionnaires gefunden.', 'err');
-        renderChoicesModal([], 'Questionnaire', () => {});
-      } else {
-        bmStatus(`${items.length} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`, 'ok');
-        renderChoicesModal(items, 'Questionnaire', (sel) => {
-          setAndPersist('qId', sel.id);
-          updateShareUrl();
-          bmClose();
-        });
-      }
-      const linkNext = (bundle.link||[]).find(l => l.relation === 'next')?.url || null;
-      nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
-      if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
-      if (nextBtn) nextBtn.disabled = !nextUrl;
-      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
-    } catch (e) {
-      bmStatus(e.message || 'Fehler bei der Suche', 'err');
-    }
-  }
-
-  if (prevBtn) prevBtn.onclick = async () => {
-    if (prevStack.length === 0) return;
-    const url = prevStack.pop();
-    pageNum = Math.max(1, pageNum - 1);
-    currentUrl = url;
-    await load(currentUrl);
-  };
-  if (nextBtn) nextBtn.onclick = async () => {
-    if (!nextUrl) return;
-    prevStack.push(currentUrl);
-    pageNum += 1;
-    currentUrl = nextUrl;
-    await load(currentUrl);
-  };
-
-  // Run search from input/button
-  const runSearch = async () => {
-    const term = sInput?.value || '';
-    prevStack.length = 0;
-    pageNum = 1;
-    currentUrl = buildFirstUrl(term);
-    await load(currentUrl);
-  };
-  if (sBtn) sBtn.onclick = runSearch;
-  if (sInput) sInput.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); } };
-  if (sInput) sInput.oninput = () => {
-    const term = sInput.value || '';
-    // Auto-suche bei >3 Zeichen oder wenn geleert
-    clearTimeout(sInput.__debounce);
-    sInput.__debounce = setTimeout(() => {
-      if (term.length === 0 || term.length > 3) runSearch();
-    }, 350);
-  };
-
-  await load(currentUrl);
+  return openPagedBrowser({
+    modalTitle: 'Questionnaires durchsuchen',
+    modalSubtitle: `Quelle: ${base}`,
+    placeholder: 'Titel suchen...',
+    resourceType: 'Questionnaire',
+    buildFirstUrl(term) {
+      const t = (term || '').trim();
+      const extra = t ? `&title:contains=${encodeURIComponent(t)}` : '';
+      return base + sep + baseQuery + extra;
+    },
+    messages: {
+      loading: 'Lade Questionnaires ...',
+      empty: 'Keine Questionnaires gefunden.',
+      results: (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`,
+    },
+    onSelect(sel) {
+      setAndPersist('qId', sel.id);
+      updateShareUrl();
+      bmClose();
+    },
+  });
 }
 
 async function openPatientBrowser(){
@@ -780,93 +812,27 @@ async function openPatientBrowser(){
   const elems = '_elements=id,name,birthDate,gender,identifier';
   const baseQuery = `Patient?_count=${BROWSE_COUNT}&${elems}`;
 
-  // Open modal first to reset search field
-  bmOpen('Patienten durchsuchen', `Quelle: ${effBase}`);
-
-  const sInput = $('browseSearch');
-  const sBtn = $('browseSearchBtn');
-  if (sInput) { sInput.placeholder = 'Name suchen...'; }
-  const buildFirstUrl = (term) => {
-    const t = (term || '').trim();
-    const extra = t ? `&name=${encodeURIComponent(t)}` : '';
-    return effBase + sep + baseQuery + extra;
-  };
-  const firstUrl = buildFirstUrl(sInput?.value || '');
-  const ctrls = $('browseControls');
-  const prevBtn = $('browsePrev');
-  const nextBtn = $('browseNext');
-  const pageEl = $('browsePage');
-  if (ctrls) ctrls.style.display = '';
-
-  let currentUrl = firstUrl;
-  let nextUrl = null;
-  const prevStack = [];
-  let pageNum = 1;
-
-  async function load(url) {
-    try {
-      bmStatus('Lade Patienten …');
-      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
-      if (nextBtn) nextBtn.disabled = true;
-
-      const bundle = await fetchFHIR(url);
-      const items = bundleEntries(bundle).filter(r => r && r.resourceType === 'Patient');
-      if (!items.length) {
-        bmStatus('Keine Patienten gefunden.', 'err');
-        renderChoicesModal([], 'Patient', () => {});
-      } else {
-        bmStatus(`${items.length} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`, 'ok');
-        renderChoicesModal(items, 'Patient', (sel) => {
-          setAndPersist('patientId', sel.id);
-          updateShareUrl();
-          bmClose();
-        });
-      }
-      const linkNext = (bundle.link||[]).find(l => l.relation === 'next')?.url || null;
-      nextUrl = linkNext ? new URL(linkNext, new URL(url)).toString() : null;
-      if (pageEl) pageEl.textContent = `Seite ${pageNum}`;
-      if (nextBtn) nextBtn.disabled = !nextUrl;
-      if (prevBtn) prevBtn.disabled = prevStack.length === 0;
-    } catch (e) {
-      bmStatus(e.message || 'Fehler bei der Suche', 'err');
-    }
-  }
-
-  if (prevBtn) prevBtn.onclick = async () => {
-    if (prevStack.length === 0) return;
-    const url = prevStack.pop();
-    pageNum = Math.max(1, pageNum - 1);
-    currentUrl = url;
-    await load(currentUrl);
-  };
-  if (nextBtn) nextBtn.onclick = async () => {
-    if (!nextUrl) return;
-    prevStack.push(currentUrl);
-    pageNum += 1;
-    currentUrl = nextUrl;
-    await load(currentUrl);
-  };
-
-  // Run search from input/button
-  const runSearch = async () => {
-    const term = sInput?.value || '';
-    prevStack.length = 0;
-    pageNum = 1;
-    currentUrl = buildFirstUrl(term);
-    await load(currentUrl);
-  };
-  if (sBtn) sBtn.onclick = runSearch;
-  if (sInput) sInput.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); } };
-  if (sInput) sInput.oninput = () => {
-    const term = sInput.value || '';
-    // Auto-suche bei >3 Zeichen oder wenn geleert
-    clearTimeout(sInput.__debounce);
-    sInput.__debounce = setTimeout(() => {
-      if (term.length === 0 || term.length > 3) runSearch();
-    }, 350);
-  };
-
-  await load(currentUrl);
+  return openPagedBrowser({
+    modalTitle: 'Patienten durchsuchen',
+    modalSubtitle: `Quelle: ${effBase}`,
+    placeholder: 'Name suchen...',
+    resourceType: 'Patient',
+    buildFirstUrl(term) {
+      const t = (term || '').trim();
+      const extra = t ? `&name=${encodeURIComponent(t)}` : '';
+      return effBase + sep + baseQuery + extra;
+    },
+    messages: {
+      loading: 'Lade Patienten ...',
+      empty: 'Keine Patienten gefunden.',
+      results: (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`,
+    },
+    onSelect(sel) {
+      setAndPersist('patientId', sel.id);
+      updateShareUrl();
+      bmClose();
+    },
+  });
 }
 
 async function openEncounterBrowser(){
@@ -874,27 +840,34 @@ async function openEncounterBrowser(){
   const effBase = getEffectivePrepopBase(vals) || vals.fhirBase;
   if (!effBase) { status('Bitte zuerst eine FHIR Base (oder Prepopulation Base) angeben.', 'err'); return; }
   const pid = (vals.ids.patient || '').trim();
-  bmOpen('Encounters durchsuchen', `Quelle: ${effBase}${pid ? ` • Patient: ${pid}` : ''}`);
-  try {
-    bmStatus('Lade Encounters …');
-    const sep = effBase.endsWith('/') ? '' : '/';
-    const elems = '_elements=id,subject,period,class,status,serviceType,identifier';
-    let search = `Encounter?_count=${BROWSE_COUNT}&${elems}`;
-    if (pid) {
-      // Referenzwert für Suche bestimmen: akzeptiere bereits vollständige Referenzen
-      const ref = pid.includes('/') ? pid : `Patient/${pid}`;
-      search += `&patient=${encodeURIComponent(ref)}`;
-    }
-    const url = effBase + sep + search;
-    const items = (await fetchAllPages(url)).filter(r => r && r.resourceType === 'Encounter');
-    if (!items.length) { bmStatus('Keine Encounters gefunden.', 'err'); return; }
-    bmStatus(`${items.length} Treffer gefunden. Auswahl zum Übernehmen klicken.`, 'ok');
-    renderChoicesModal(items, 'Encounter', (sel) => {
+  const patientRef = pid ? (pid.includes('/') ? pid : `Patient/${pid}`) : '';
+
+  const sep = effBase.endsWith('/') ? '' : '/';
+  const elems = '_elements=id,subject,period,class,status,serviceType,identifier';
+  const patientFilter = patientRef ? `&patient=${encodeURIComponent(patientRef)}` : '';
+  const baseQuery = `Encounter?_count=${BROWSE_COUNT}&${elems}${patientFilter}`;
+
+  return openPagedBrowser({
+    modalTitle: 'Encounters durchsuchen',
+    modalSubtitle: `Quelle: ${effBase}${pid ? ` • Patient: ${pid}` : ''}`,
+    placeholder: 'Identifier suchen...',
+    resourceType: 'Encounter',
+    buildFirstUrl(term) {
+      const t = (term || '').trim();
+      const extra = t ? `&identifier=${encodeURIComponent(t)}` : '';
+      return effBase + sep + baseQuery + extra;
+    },
+    messages: {
+      loading: 'Lade Encounters ...',
+      empty: 'Keine Encounters gefunden.',
+      results: (count) => `${count} Treffer auf dieser Seite. Auswahl zum Übernehmen klicken.`,
+    },
+    onSelect(sel) {
       setAndPersist('encounterId', sel.id);
       updateShareUrl();
       bmClose();
-    });
-  } catch (e) { bmStatus(e.message || 'Fehler bei der Suche', 'err'); }
+    },
+  });
 }
 
 // Browse-Buttons → Popups
