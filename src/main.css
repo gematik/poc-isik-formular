@@ -73,6 +73,44 @@ main {
   padding: 0.75rem 1rem;
 }
 
+.smart-context {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #ddd;
+  background: #f8f9fb;
+  display: grid;
+  gap: 6px;
+}
+
+.smart-context__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.smart-context__rows {
+  display: grid;
+  gap: 4px;
+}
+
+.smart-context__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  color: #444;
+}
+
+.smart-context__label {
+  font-weight: 600;
+}
+
+.smart-context__value {
+  text-align: right;
+  color: #555;
+  word-break: break-word;
+}
+
 label {
   display: block;
   font-size: 13px;

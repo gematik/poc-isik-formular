@@ -86,6 +86,133 @@ function renderQuestionnaire(q) {
 const el = (id) => document.getElementById(id);
 const status = (msg, cls) => { const s = el('status'); s.className = cls || ''; s.textContent = msg || ''; };
 // --- UI Helpers -----------------------------------------------------------
+const SMART_CONTEXT_FIELDS = [
+  { id: 'smartContextUser', keys: ['user', 'fhirUser'], typeHint: null },
+  { id: 'smartContextPatient', keys: ['patient'], typeHint: 'Patient' },
+  { id: 'smartContextEncounter', keys: ['encounter'], typeHint: 'Encounter' },
+];
+let _smartContextRefreshSeq = 0;
+
+function setSmartContextValue(id, value) {
+  const node = el(id);
+  if (node) node.textContent = value || '–';
+}
+
+function resetSmartContextDisplay() {
+  const container = el('smartContextInfo');
+  if (container) container.classList.add('hidden');
+  SMART_CONTEXT_FIELDS.forEach((field) => setSmartContextValue(field.id, '–'));
+}
+
+function normalizeSmartReference(ref, fallbackType) {
+  if (!ref) return null;
+  if (/^https?:/i.test(ref)) return { url: ref, resourceType: null, id: null, absolute: true };
+  if (/^(urn|oid|uuid):/i.test(ref)) return { url: ref, resourceType: null, id: null };
+  const segments = String(ref).split('/').filter(Boolean);
+  if (segments.length >= 2) {
+    return {
+      url: segments.slice(0, 2).join('/'),
+      resourceType: segments[0],
+      id: segments[1],
+    };
+  }
+  if (fallbackType) {
+    return { url: `${fallbackType}/${ref}`, resourceType: fallbackType, id: ref };
+  }
+  return { url: ref, resourceType: null, id: ref };
+}
+
+function humanNameToString(name) {
+  if (!name) return '';
+  if (typeof name === 'string') return name;
+  if (name.text) return name.text;
+  const parts = [];
+  if (Array.isArray(name.prefix)) parts.push(...name.prefix.filter(Boolean));
+  if (Array.isArray(name.given)) parts.push(...name.given.filter(Boolean));
+  if (name.family) parts.push(name.family);
+  return parts.join(' ').trim();
+}
+
+function extractResourceName(resource) {
+  if (!resource) return '';
+  const names = [];
+  if (Array.isArray(resource.name)) names.push(...resource.name);
+  else if (resource.name) names.push(resource.name);
+  for (const n of names) {
+    const txt = humanNameToString(n);
+    if (txt) return txt;
+  }
+  return '';
+}
+
+function formatSmartContextResource(resource) {
+  if (!resource || !resource.resourceType) return '';
+  if (resource.resourceType === 'Patient') {
+    const name = getPatientName(resource);
+    return name ? `${name} (${resource.id || ''})`.trim() : `Patient ${resource.id || ''}`.trim();
+  }
+  if (resource.resourceType === 'Encounter') {
+    return getEncounterTitle(resource) || `Encounter ${resource.id || ''}`.trim();
+  }
+  if (resource.resourceType === 'Practitioner' || resource.resourceType === 'RelatedPerson' || resource.resourceType === 'Person') {
+    const name = extractResourceName(resource);
+    if (name) return `${name}${resource.id ? ` (${resource.id})` : ''}`;
+    return `${resource.resourceType}${resource.id ? ` ${resource.id}` : ''}`;
+  }
+  if (resource.resourceType === 'PractitionerRole') {
+    const codeDisplay = Array.isArray(resource.code)
+      ? (resource.code[0]?.text || resource.code[0]?.coding?.find(c => c.display)?.display || '')
+      : '';
+    const orgDisplay = resource.organization?.display || resource.organization?.reference || '';
+    const parts = [codeDisplay, orgDisplay].filter(Boolean);
+    const base = parts.join(' • ');
+    return base || `PractitionerRole${resource.id ? ` ${resource.id}` : ''}`;
+  }
+  if (resource.resourceType === 'Organization' || resource.resourceType === 'Location') {
+    const name = resource.name || resource.alias?.[0] || resource.display;
+    return name ? `${name}${resource.id ? ` (${resource.id})` : ''}` : `${resource.resourceType}${resource.id ? ` ${resource.id}` : ''}`;
+  }
+  return `${resource.resourceType}${resource.id ? ` ${resource.id}` : ''}`;
+}
+
+async function updateSmartContextDisplay(session) {
+  const container = el('smartContextInfo');
+  if (!container) return;
+  if (!session) {
+    resetSmartContextDisplay();
+    return;
+  }
+
+  const ctx = session.context || {};
+  const sessionBase = session.iss ? normalizeBaseUrl(session.iss) : null;
+  const baseSep = sessionBase ? (sessionBase.endsWith('/') ? '' : '/') : '';
+  const seq = ++_smartContextRefreshSeq;
+
+  container.classList.remove('hidden');
+  SMART_CONTEXT_FIELDS.forEach((field) => {
+    const value = field.keys.map((key) => ctx[key]).find(Boolean) || null;
+    const display = value ? String(value) : '–';
+    setSmartContextValue(field.id, display);
+  });
+
+  if (!sessionBase) return;
+  await Promise.all(SMART_CONTEXT_FIELDS.map(async (field) => {
+    const value = field.keys.map((key) => ctx[key]).find(Boolean);
+    if (!value) return;
+    const ref = normalizeSmartReference(value, field.typeHint);
+    if (!ref || !ref.url || !ref.resourceType || !ref.id) return;
+    const targetUrl = /^https?:/i.test(ref.url) ? ref.url : `${sessionBase}${baseSep}${ref.url}`;
+    try {
+      const resource = await fetchFHIR(targetUrl);
+      if (_smartContextRefreshSeq !== seq) return;
+      const formatted = formatSmartContextResource(resource);
+      if (formatted) setSmartContextValue(field.id, formatted);
+    } catch (err) {
+      console.warn('SMART Kontext Ressource konnte nicht geladen werden:', err);
+    }
+  }));
+}
+
 function getUiValues() {
   const fhirUrl = el('fhirUrl')?.value?.trim() || '';
   const fhirBase = el('fhirBase')?.value?.trim() || '';
@@ -321,9 +448,11 @@ function setAndPersist(id, value) {
 }
 
 function applySmartContextToUi(session) {
+  updateSmartContextDisplay(session);
   if (!session) return;
   const ctx = session.context || {};
   if (session.iss) {
+    setAndPersist('fhirBasePreset', 'custom')
     setAndPersist('fhirBase', session.iss);
     setAndPersist('prepopBase', session.iss);
   }

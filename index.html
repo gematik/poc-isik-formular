@@ -17,6 +17,23 @@
   </header>
   <main>
     <section class="panel" id="leftPanel">
+      <div id="smartContextInfo" class="smart-context hidden" aria-live="polite">
+        <div class="smart-context__title">SMART Kontext</div>
+        <div class="smart-context__rows">
+          <div class="smart-context__row">
+            <span class="smart-context__label">Benutzer</span>
+            <span class="smart-context__value" id="smartContextUser">–</span>
+          </div>
+          <div class="smart-context__row">
+            <span class="smart-context__label">Patient</span>
+            <span class="smart-context__value" id="smartContextPatient">–</span>
+          </div>
+          <div class="smart-context__row">
+            <span class="smart-context__label">Encounter</span>
+            <span class="smart-context__value" id="smartContextEncounter">–</span>
+          </div>
+        </div>
+      </div>
       <h2>Quelle wählen</h2>
       <div class="body stack">
         <div class="stack collapsible collapsed" data-title="Questionnaire per URL">
