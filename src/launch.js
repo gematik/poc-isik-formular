@@ -11,8 +11,13 @@ import {
 const statusEl = document.getElementById('status');
 const detailsEl = document.getElementById('details');
 
-function setStatus(message) {
-  if (statusEl) statusEl.textContent = message;
+function setStatus(message, options = {}) {
+  if (!statusEl) return;
+  if (options.html) {
+    statusEl.innerHTML = message;
+  } else {
+    statusEl.textContent = message;
+  }
 }
 
 function showDetails(obj) {
@@ -38,6 +43,16 @@ async function run() {
     clearSmartSession();
 
     const params = new URLSearchParams(window.location.search);
+    const hasParams = Array.from(params.keys()).length > 0;
+    if (!hasParams) {
+      const launchUrl = `${window.location.origin}${window.location.pathname}`;
+      setStatus(
+        `Um den SMART App Launch zu testen, nutzen Sie bitte <a href="https://launch.smarthealthit.org/" target="_blank" rel="noopener">https://launch.smarthealthit.org/</a> und geben Sie <a href="${launchUrl}" target="_blank" rel="noopener">${launchUrl}</a> als Launch URL an.`,
+        { html: true },
+      );
+      showDetails(null);
+      return;
+    }
     const iss = params.get('iss')?.trim();
     if (!iss) {
       throw new Error('SMART launch parameter "iss" fehlt in der URL.');
