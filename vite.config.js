@@ -15,6 +15,7 @@ export default defineConfig(({ command }) => {
           main: r(__dirname, 'index.html'),
           resolve: r(__dirname, 'resolve.html'),
           result: r(__dirname, 'result.html'),
+          launch: r(__dirname, 'launch.html'),
         }
       }
     },

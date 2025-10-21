@@ -106,6 +106,14 @@ Hinweis zu `index.html`:
 
 ---
 
+## SMART App Launch
+
+- Einstieg ueber `launch.html`, z. B. `launch.html?iss=https://launch.smarthealthit.org/v/r4/sim/eyJrIjoiMSJ9/fhir&launch=123`, optional mit eigenen Parametern `client_id`, `scope` oder `redirect_uri`.
+- Standardwerte fuer `client_id` und `scope` stehen in `src/lib/smart.js` als `SMART_DEFAULTS` und koennen dort angepasst oder per Query-Parameter ueberschrieben werden.
+- Die Launch-Seite fuehrt SMART Discovery (Well-Known oder FHIR CapabilityStatement), erzeugt ein PKCE-Paar, speichert den Pending-State in `sessionStorage` und leitet zum Authorization Server weiter.
+- Nach dem Redirect zu `index.html` tauscht die App den Code gegen Tokens, uebernimmt Patient/Encounter/User aus dem Token und sendet automatisch `Authorization`-Header bei allen FHIR-Requests.
+- Die erhaltenen Tokens gelten fuer die laufende Browser-Session; laeuft ein Token ab oder der Austausch scheitert, erscheint ein Hinweis und der Launch muss erneut gestartet werden.
+
 ## Projektstruktur
 
 ```text
