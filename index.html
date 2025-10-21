@@ -5,9 +5,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LHC-Forms Demo – FHIR Questionnaire Renderer</title>
-  <script type="module" crossorigin src="/poc-isik-formular/assets/main-CrmJ1BaP.js"></script>
-  <link rel="modulepreload" crossorigin href="/poc-isik-formular/assets/footer-BcjiCzmm.js">
-  <link rel="stylesheet" crossorigin href="/poc-isik-formular/assets/footer-D28q5uhl.css">
+  <script type="module" crossorigin src="/poc-isik-formular/assets/main-YXt_IhdT.js"></script>
+  <link rel="modulepreload" crossorigin href="/poc-isik-formular/assets/modulepreload-polyfill-B5Qt9EMX.js">
+  <link rel="modulepreload" crossorigin href="/poc-isik-formular/assets/footer-z8lHOjHC.js">
+  <link rel="modulepreload" crossorigin href="/poc-isik-formular/assets/smart-aX28uhIB.js">
+  <link rel="stylesheet" crossorigin href="/poc-isik-formular/assets/footer-BSV1lCnU.css">
   <link rel="stylesheet" crossorigin href="/poc-isik-formular/assets/main-BH4U6DQn.css">
   <link rel="stylesheet" crossorigin href="/poc-isik-formular/assets/resolve-C4nX2P5b.css">
 </head>
@@ -19,6 +21,23 @@
   </header>
   <main>
     <section class="panel" id="leftPanel">
+      <div id="smartContextInfo" class="smart-context hidden" aria-live="polite">
+        <div class="smart-context__title">SMART Kontext</div>
+        <div class="smart-context__rows">
+          <div class="smart-context__row">
+            <span class="smart-context__label">Benutzer</span>
+            <span class="smart-context__value" id="smartContextUser">–</span>
+          </div>
+          <div class="smart-context__row">
+            <span class="smart-context__label">Patient</span>
+            <span class="smart-context__value" id="smartContextPatient">–</span>
+          </div>
+          <div class="smart-context__row">
+            <span class="smart-context__label">Encounter</span>
+            <span class="smart-context__value" id="smartContextEncounter">–</span>
+          </div>
+        </div>
+      </div>
       <h2>Quelle wählen</h2>
       <div class="body stack">
         <div class="stack collapsible collapsed" data-title="Questionnaire per URL">
