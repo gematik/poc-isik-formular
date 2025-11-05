@@ -6,6 +6,7 @@ import 'lforms/dist/lforms/fhir/R4/lformsFHIR.min.js';
 
 // UCUM aus npm importieren und als Global verfügbar machen (für evtl. Abhängigkeiten)
 import { UcumLhcUtils } from '@lhncbc/ucum-lhc';
+import { inAppExtract, extractResultIsOperationOutcome } from '@aehrc/sdc-template-extract';
 import {
   readPendingLaunch,
   clearPendingLaunch,
@@ -21,6 +22,8 @@ window.UcumLhcUtils = UcumLhcUtils;
 let _lastQuestionnaire = null;
 let _smartSession = null;
 let _smartReadyPromise = null;
+const TEMPLATE_EXTRACT_EXTENSION_URL = 'http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-templateExtract';
+let _templateExtractEnabled = false;
 
 
 function getParam(...names) {
@@ -30,6 +33,53 @@ function getParam(...names) {
     if (v !== null && v !== '') return v;
   }
   return null;
+}
+
+function deepCloneResource(resource) {
+  if (typeof structuredClone === 'function') {
+    try { return structuredClone(resource); } catch { /* ignore and fall back */ }
+  }
+  return JSON.parse(JSON.stringify(resource));
+}
+
+function resourceHasExtension(resource, extensionUrl) {
+  if (!resource || typeof resource !== 'object') return false;
+  const stack = [resource];
+  const seen = new Set();
+  const matchesExtension = (list) => Array.isArray(list) && list.some((ext) => ext && typeof ext === 'object' && ext.url === extensionUrl);
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || typeof current !== 'object') continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    if (matchesExtension(current.extension) || matchesExtension(current.modifierExtension)) return true;
+    for (const value of Object.values(current)) {
+      if (!value || typeof value !== 'object') continue;
+      if (Array.isArray(value)) {
+        for (const entry of value) stack.push(entry);
+      } else {
+        stack.push(value);
+      }
+    }
+  }
+  return false;
+}
+
+function questionnaireSupportsTemplateExtract(questionnaire) {
+  return resourceHasExtension(questionnaire, TEMPLATE_EXTRACT_EXTENSION_URL);
+}
+
+function setTemplateExtractAvailable(enabled) {
+  const btn = document.getElementById('btnTemplateExtract');
+  _templateExtractEnabled = !!enabled;
+  if (!btn) return;
+  if (enabled) {
+    btn.classList.remove('hidden');
+    btn.disabled = false;
+  } else {
+    btn.classList.add('hidden');
+    btn.disabled = true;
+  }
 }
 
 // Minimal-Modus via URL-Parameter ?minimal=true | ?minimal=withButtons
@@ -70,6 +120,7 @@ function renderQuestionnaire(q) {
     // Vor dem Rendern: Prüfe auf modifierExtension und zeige ggf. Warnung
     updateModifierWarning(q);
     _lastQuestionnaire = q || null;
+    setTemplateExtractAvailable(questionnaireSupportsTemplateExtract(q));
     const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
     // Prepopulation einschalten, damit z.B. observationLinkPeriod greift
     window.LForms.Util.addFormToPage(lf, document.getElementById('renderTarget'), { prepopulate: true });
@@ -78,6 +129,7 @@ function renderQuestionnaire(q) {
   } catch (e) {
     console.error(e);
     setExportVisible(false);
+    setTemplateExtractAvailable(false);
     status('Konvertierung/Rendering fehlgeschlagen: ' + e.message,
       'err');
   }
@@ -695,9 +747,72 @@ function doExport(includeObservations) {
   }
 }
 
+async function doTemplateExtract() {
+  if (!_lastQuestionnaire) {
+    status('Kein Questionnaire geladen.', 'err');
+    return;
+  }
+  if (!_templateExtractEnabled || !questionnaireSupportsTemplateExtract(_lastQuestionnaire)) {
+    status('Dieses Questionnaire unterstützt keinen Template-Extract.', 'err');
+    return;
+  }
+  if (!window.LForms?.Util?.getFormFHIRData) {
+    status('LHC-Forms nicht initialisiert. Bitte Formular rendern.', 'err');
+    return;
+  }
+  try {
+    const subject = buildSubjectFromUI();
+    const qr = window.LForms.Util.getFormFHIRData('QuestionnaireResponse', 'R4', undefined, { subject });
+    if (!qr) throw new Error('Keine QuestionnaireResponse vorhanden.');
+    const extractionInput = deepCloneResource(qr);
+    const extraction = await inAppExtract(extractionInput, _lastQuestionnaire, null);
+    const success = extraction?.extractSuccess && extraction && !extractResultIsOperationOutcome(extraction.extractResult);
+    const meta = {
+      generatedAt: new Date().toISOString(),
+      type: 'templateExtract',
+      questionnaireId: _lastQuestionnaire?.id || null,
+      questionnaireTitle: _lastQuestionnaire?.title || _lastQuestionnaire?.name || null,
+      templateExtractSuccess: !!success,
+    };
+    const payload = {
+      questionnaireResponse: qr,
+      meta,
+    };
+    if (success) {
+      const extractResult = extraction.extractResult;
+      payload.templateExtractBundle = extractResult?.extractedBundle || null;
+      if (extractResult?.issues) payload.templateExtractIssues = extractResult.issues;
+      if (extractResult?.debugInfo) {
+        payload.templateExtractDebugInfo = {
+          resourceType: 'TemplateExtractDebugInfo',
+          info: deepCloneResource(extractResult.debugInfo),
+        };
+      }
+      openResultsPage(payload);
+      status('Template-Extract erfolgreich erzeugt.', 'ok');
+    } else {
+      let outcome = null;
+      if (extraction && extractResultIsOperationOutcome(extraction.extractResult)) {
+        outcome = extraction.extractResult;
+      } else if (extraction && extraction.extractResult && extraction.extractResult.issues) {
+        outcome = extraction.extractResult.issues;
+      }
+      if (outcome) payload.templateExtractOutcome = outcome;
+      payload.meta.templateExtractSuccess = false;
+      openResultsPage(payload);
+      status('Template-Extract lieferte Hinweise (OperationOutcome).', 'err');
+    }
+  } catch (e) {
+    console.error(e);
+    status('Template-Extract fehlgeschlagen: ' + (e?.message || e), 'err');
+  }
+}
+
 // Hook up export buttons
 const btnExportQR = document.getElementById('btnExportQR');
 if (btnExportQR) btnExportQR.onclick = () => doExport(false);
+const btnTemplateExtract = document.getElementById('btnTemplateExtract');
+if (btnTemplateExtract) btnTemplateExtract.onclick = () => { void doTemplateExtract(); };
 const btnExportQROBS = document.getElementById('btnExportQROBS');
 if (btnExportQROBS) btnExportQROBS.onclick = () => doExport(true);
 
@@ -706,7 +821,10 @@ function setExportVisible(show) {
   if (!box) return;
   const hideForMinimal = document.body.classList.contains('minimal-nobuttons');
   if (show && !hideForMinimal) box.classList.remove('hidden');
-  else box.classList.add('hidden');
+  else {
+    box.classList.add('hidden');
+    if (!show) setTemplateExtractAvailable(false);
+  }
 }
 
 // UI Handlers

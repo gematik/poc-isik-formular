@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@lhncbc/ucum-lhc": "^7.1.3",
+    "@aehrc/sdc-template-extract": "^1.0.14",
     "lforms": "^38.3.0"
   }
 }

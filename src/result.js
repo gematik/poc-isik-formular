@@ -121,14 +121,32 @@ function buildTabs(resources) {
 
 function renderPayload(data) {
   const metaLine = $('metaLine');
+  const meta = data?.meta || {};
   const parts = [];
-  if (data?.meta?.generatedAt) parts.push('Erzeugt: ' + new Date(data.meta.generatedAt).toLocaleString());
-  if (data?.meta?.includeObservations) parts.push('Inklusive Observations'); else parts.push('Nur QuestionnaireResponse');
-  metaLine.textContent = parts.join(' | ');
+  if (meta.generatedAt) parts.push('Erzeugt: ' + new Date(meta.generatedAt).toLocaleString());
+  if (meta.type === 'templateExtract') {
+    parts.push(meta.templateExtractSuccess === false ? 'Template-Extract (OperationOutcome)' : 'Template-Extract Bundle');
+  } else if (meta.includeObservations === true) {
+    parts.push('Inklusive Observations');
+  } else if (meta.includeObservations === false) {
+    parts.push('Nur QuestionnaireResponse');
+  }
+  if (meta.questionnaireTitle) {
+    parts.push('Questionnaire: ' + meta.questionnaireTitle);
+  } else if (meta.questionnaireId) {
+    parts.push('Questionnaire-ID: ' + meta.questionnaireId);
+  }
+  metaLine.textContent = parts.length > 0 ? parts.join(' | ') : 'Keine Metadaten vorhanden.';
+  if (meta.type === 'templateExtract' && meta.templateExtractSuccess === false) metaLine.classList.add('err');
+  else metaLine.classList.remove('err');
 
   const resources = [];
   if (data?.questionnaireResponse) resources.push(data.questionnaireResponse);
   if (Array.isArray(data?.observations)) resources.push(...data.observations);
+  if (data?.templateExtractBundle) resources.push(data.templateExtractBundle);
+  if (data?.templateExtractIssues) resources.push(data.templateExtractIssues);
+  if (data?.templateExtractOutcome) resources.push(data.templateExtractOutcome);
+  if (data?.templateExtractDebugInfo) resources.push(data.templateExtractDebugInfo);
   // Build and append ISiK BerichtsBundle (Composition + entries)
   try {
     const isikBundle = buildIsikBerichtsBundle({
