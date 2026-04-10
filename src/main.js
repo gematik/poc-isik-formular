@@ -20,10 +20,10 @@
 */
 
 // LForms Classic-Build (stellt window.LForms bereit)
-import 'lforms/dist/lforms/webcomponent/assets/lib/zone.min.js';
-import 'lforms/dist/lforms/webcomponent/styles.css';
-import 'lforms/dist/lforms/webcomponent/lhc-forms.js';
-import 'lforms/dist/lforms/fhir/R4/lformsFHIR.min.js';
+import '/public/lforms/lforms/webcomponent/assets/lib/zone.min.js';
+import '/public/lforms/lforms/webcomponent/styles.css';
+import '/public/lforms/lforms/webcomponent/lhc-forms.js';
+import '/public/lforms/lforms/fhir/R4/lformsFHIR.min.js';
 
 // UCUM aus npm importieren und als Global verfügbar machen (für evtl. Abhängigkeiten)
 import { UcumLhcUtils } from '@lhncbc/ucum-lhc';
@@ -39,6 +39,12 @@ import {
   clearSmartSession,
 } from './lib/smart.js';
 window.UcumLhcUtils = UcumLhcUtils;
+
+// Ladebildschirm ausblenden, sobald alles geladen ist
+window.addEventListener('DOMContentLoaded', () => {
+  const loading = document.getElementById('loadingScreen');
+  if (loading) loading.style.display = 'none';
+});
 // Keep track of the last rendered Questionnaire for export metadata
 let _lastQuestionnaire = null;
 let _smartSession = null;
@@ -144,6 +150,14 @@ function renderQuestionnaire(q) {
     setTemplateExtractAvailable(questionnaireSupportsTemplateExtract(q));
     const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
     // Prepopulation einschalten, damit z.B. observationLinkPeriod greift
+    if (window.LForms?.setLanguage) {
+      window.LForms.setLanguage('de');
+      if (window.LForms.i18n && window.LForms.i18n.de) {
+        Object.assign(window.LForms.i18n.de, {
+          "must be a decimal number.": "muss eine Dezimalzahl sein.",
+        });
+      }
+    }
     window.LForms.Util.addFormToPage(lf, document.getElementById('renderTarget'), { prepopulate: true });
     setExportVisible(true);
     status('Erfolgreich gerendert ✅', 'ok');
