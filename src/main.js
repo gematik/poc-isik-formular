@@ -592,7 +592,7 @@ _smartReadyPromise = completeSmartLaunch();
 // Presets für FHIR Base Auswahl
 const FHIR_BASE_PRESETS = {
   hl7: 'https://fhir.hl7.de/fhir',
-  simplifier: 'https://fhir.simplifier.net/isik-stufe-5',
+  simplifier: 'https://fhir.simplifier.net/isik-stufe-6',
   miiPro: "https://fhir.simplifier.net/MII-Erweiterungsmodul-PRO-2025"
 };
 
