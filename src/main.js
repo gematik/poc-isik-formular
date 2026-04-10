@@ -144,8 +144,6 @@ function getSmartAuthHeader(targetBase) {
 }
 function renderQuestionnaire(q) {
   try {
-    // Vor dem Rendern: Prüfe auf modifierExtension und zeige ggf. Warnung
-    updateModifierWarning(q);
     _lastQuestionnaire = q || null;
     setTemplateExtractAvailable(questionnaireSupportsTemplateExtract(q));
     const lf = window.LForms.Util.convertFHIRQuestionnaireToLForms(q, 'R4');
@@ -155,6 +153,7 @@ function renderQuestionnaire(q) {
       if (window.LForms.i18n && window.LForms.i18n.de) {
         Object.assign(window.LForms.i18n.de, {
           "must be a decimal number.": "muss eine Dezimalzahl sein.",
+          "Error: One or more modifierExtensions are found in the Questionnaire resource. The rendered Questionnaire below is for display only and may not be correctly rendered, and the QuestionnaireResponse generated from it may not be valid.": "Fehler: Eine oder mehrere modifierExtensions wurden in der Questionnaire-Ressource gefunden. Das unten angezeigte Questionnaire dient nur zur Anzeige und wird möglicherweise nicht korrekt gerendert. Die daraus generierte QuestionnaireResponse ist möglicherweise nicht gültig.",
         });
       }
     }
@@ -1378,7 +1377,6 @@ el('btnLoadSample').onclick = () => {
 el('btnClear').onclick = () => {
   el('jsonArea').value = '';
   el('renderTarget').innerHTML = '';
-  updateModifierWarning(null); // Warnbox ausblenden
   status('Zurückgesetzt.');
   setExportVisible(false);
 };
@@ -1450,83 +1448,9 @@ el('btnClear').onclick = () => {
   }
 })();
 
-// ---- ModifierExtension Warnhinweis -------------------------------------
-function collectModifierExtensionUrls(obj, acc = new Set()) {
-  if (!obj) return acc;
-  if (Array.isArray(obj)) {
-    for (const it of obj) collectModifierExtensionUrls(it, acc);
-    return acc;
-  }
-  if (typeof obj === 'object') {
-    if (Array.isArray(obj.modifierExtension)) {
-      for (const ext of obj.modifierExtension) {
-        if (ext && typeof ext.url === 'string' && ext.url) acc.add(ext.url);
-      }
-    }
-    for (const k of Object.keys(obj)) {
-      // Tiefensuche, aber die modifierExtension selbst wurde schon verarbeitet
-      if (k === 'modifierExtension') continue;
-      collectModifierExtensionUrls(obj[k], acc);
-    }
-  }
-  return acc;
-}
-
-function ensureWarningContainer() {
-  const body = document.querySelector('#renderPanel .body');
-  if (!body) return null;
-  let box = document.getElementById('modifierWarning');
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'modifierWarning';
-    box.className = 'warning-banner';
-    // Immer vor dem Formular einfügen
-    const target = document.getElementById('renderTarget');
-    if (target && target.parentElement === body) {
-      body.insertBefore(box, target);
-    } else {
-      body.insertBefore(box, body.firstChild);
-    }
-  }
-  return box;
-}
-
-function updateModifierWarning(questionnaire) {
-  const box = ensureWarningContainer();
-  if (!box) return; // kein Zielcontainer vorhanden
-  if (!questionnaire) {
-    box.style.display = 'none';
-    box.textContent = '';
-    return;
-  }
-  const urls = Array.from(collectModifierExtensionUrls(questionnaire));
-  if (urls.length === 0) {
-    box.style.display = 'none';
-    box.textContent = '';
-    return;
-  }
-  // Baue den Hinweis mit klickbaren Links
-  const prefix = 'Das Questionnaire wurde für Anschauungszwecke gerendert, beinhaltet allerdings die Modifier-Extension ';
-  const suffix = ', welche nicht vom Renderer interpretiert wurde.';
-  box.replaceChildren();
-  box.append(document.createTextNode(prefix));
-  urls.forEach((u, i) => {
-    if (i > 0) box.append(document.createTextNode(', '));
-    const a = document.createElement('a');
-    a.href = u;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.textContent = u;
-    box.append(a);
-  });
-  box.append(document.createTextNode(suffix));
-  box.style.display = '';
-}
-
 // Export selected helpers for tests
 export const __test__ = {
   encodeForQueryPreservingSpecials,
-  collectModifierExtensionUrls,
   getEffectivePrepopBase,
   getPatientName,
   patientDetails,
