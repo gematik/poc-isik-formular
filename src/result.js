@@ -174,6 +174,9 @@ function renderPayload(data) {
       questionnaireResponse: data?.questionnaireResponse,
       observations: data?.observations,
       meta: data?.meta,
+      patient: data?.patient || null,
+      encounter: data?.encounter || null,
+      fhirBase: data?.fhirBase || null,
     });
     if (isikBundle) resources.push(isikBundle);
   } catch (e) {

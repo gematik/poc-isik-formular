@@ -367,6 +367,7 @@ function updateShareUrl() {
 
 // ---- FHIR Context / Prepopulation --------------------------------------
 let _configuredFHIRBase = null;
+let _fhirContextVars = {};
 function createFhirClient(base, ids = {}) {
   const normBase = normalizeBaseUrl(base);
   const getAuthorizationHeader = () => getSmartAuthHeader(normBase);
@@ -507,6 +508,7 @@ async function configureLFormsFHIRContext(base, ids = {}) {
   if (window.LForms?.Util?.setFHIRContext) {
     window.LForms.Util.setFHIRContext(client, vars);
     _configuredFHIRBase = base;
+    _fhirContextVars = vars;
     console.log('FHIR context configured for', base, 'vars:', Object.keys(vars));
   }
   return result;
@@ -727,14 +729,20 @@ function buildResultPayload(includeObservations) {
     const meta = { generatedAt: new Date().toISOString(), includeObservations: true };
     const qTitle = _lastQuestionnaire?.title || _lastQuestionnaire?.name || _lastQuestionnaire?.id;
     if (qTitle) meta.questionnaireTitle = qTitle;
-    return { questionnaireResponse: qr, observations, meta };
+    return { questionnaireResponse: qr, observations, meta,
+      patient: _fhirContextVars?.patient || null,
+      encounter: _fhirContextVars?.encounter || null,
+      fhirBase: _configuredFHIRBase || null };
   } else {
     // Plain QuestionnaireResponse only
     const qr = window.LForms.Util.getFormFHIRData('QuestionnaireResponse', 'R4', undefined, { subject });
     const meta = { generatedAt: new Date().toISOString(), includeObservations: false };
     const qTitle = _lastQuestionnaire?.title || _lastQuestionnaire?.name || _lastQuestionnaire?.id;
     if (qTitle) meta.questionnaireTitle = qTitle;
-    return { questionnaireResponse: qr, observations: [], meta };
+    return { questionnaireResponse: qr, observations: [], meta,
+      patient: _fhirContextVars?.patient || null,
+      encounter: _fhirContextVars?.encounter || null,
+      fhirBase: _configuredFHIRBase || null };
   }
 }
 

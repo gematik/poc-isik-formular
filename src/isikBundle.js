@@ -259,15 +259,6 @@ function resolveEncounterFromQR(qr) {
   return undefined;
 }
 
-function resolveAuthorFromQR(qr) {
-  // Use QR.author if present; otherwise we add a synthetic Organization as author
-  if (qr && qr.author) {
-    if (typeof qr.author === 'string') return { reference: qr.author };
-    if (typeof qr.author === 'object') return { reference: qr.author.reference, display: qr.author.display };
-  }
-  return null;
-}
-
 export function buildIsikBerichtsBundle(input) {
   const qr = input?.questionnaireResponse;
   const observations = asArray(input?.observations)
@@ -278,15 +269,19 @@ export function buildIsikBerichtsBundle(input) {
   if (!qr || qr.resourceType !== 'QuestionnaireResponse') return null;
 
   const nowIso = (input?.meta?.generatedAt) || new Date().toISOString();
+  const fhirBase = (input?.fhirBase || '').replace(/\/$/, '');
 
-  // Assign IDs where missing
+  // --- Generate all UUIDs upfront ---
   const compUUID = uuidv4();
   const qrUUID = uuidv4();
-  const qrId = qr.id || qrUUID;
-  if (!qr.id) qr.id = qrId;
-  const obsIds = observations.map((o) => o?.id || uuidv4());
+  const obsUUIDs = observations.map(() => uuidv4());
+  const patientUUID = uuidv4();
+  const encounterResource = input?.encounter || null;
 
-  // Author display only (no resource, no reference)
+  // Assign QR id
+  if (!qr.id) qr.id = qrUUID;
+
+  // --- Author display ---
   let authorDisplay = 'LHC-Forms Demo App';
   if (qr && qr.author) {
     if (typeof qr.author === 'object') {
@@ -296,94 +291,109 @@ export function buildIsikBerichtsBundle(input) {
     }
   }
 
-  const subjectRef = resolveSubjectFromQR(qr);
-  const encounterRef = resolveEncounterFromQR(qr);
-
-  // Try to include Patient resource if QR.subject references a Patient/{id}
+  // --- Patient entry ---
+  // fullUrl: absolute if real resource available, urn:uuid if stub
+  // resource.id: always a fresh UUID; original server ID preserved in identifier
   let patientEntry = null;
-  let patientRefInBundle = null;
-  const subjRefStr = subjectRef?.reference || (typeof subjectRef === 'string' ? subjectRef : null);
-  if (subjRefStr) {
-    const m = subjRefStr.match(/(^|\/)Patient\/([^\/?#]+)/i);
+  let patientRef = null;
+
+  const patientResource = input?.patient || null;
+  const subjRefStr = (() => {
+    const s = resolveSubjectFromQR(qr);
+    return s?.reference || (typeof s === 'string' ? s : null) || null;
+  })();
+
+  if (patientResource && patientResource.resourceType === 'Patient' && patientResource.id && fhirBase) {
+    // Real patient from FHIR context — keep original server ID
+    const patFullUrl = `${fhirBase}/Patient/${patientResource.id}`;
+    patientEntry = {
+      fullUrl: patFullUrl,
+      resource: { ...patientResource }
+    };
+    patientRef = { reference: patFullUrl };
+  } else {
+    // Stub: extract patient ID from QR.subject.reference
+    const m = subjRefStr?.match(/(^|\/)Patient\/([^\/?#]+)/i);
     const pid = m && m[2];
     if (pid) {
-      const patFullUrl = `Patient/${pid}`;
       patientEntry = {
-        fullUrl: patFullUrl,
+        fullUrl: `urn:uuid:${patientUUID}`,
         resource: {
           resourceType: 'Patient',
-          // Use the original Patient id from the reference
-          id: pid,
-          // Keep linkage to original id as identifier for traceability
+          id: patientUUID,
           identifier: [{ system: 'urn:source-id', value: pid }]
         }
       };
-      patientRefInBundle = { reference: patFullUrl };
+      patientRef = { reference: `urn:uuid:${patientUUID}` };
     }
   }
 
-  // Composition with sections pointing to QR and each Observation separately
-  const compRef = `Composition/${compUUID}`;
-  const qrRef = `QuestionnaireResponse/${qrId}`;
+  // --- Encounter entry ---
+  let encounterEntry = null;
+  let encounterRef = null;
+
+  if (encounterResource && encounterResource.resourceType === 'Encounter' && encounterResource.id && fhirBase) {
+    const encFullUrl = `${fhirBase}/Encounter/${encounterResource.id}`;
+    encounterEntry = {
+      fullUrl: encFullUrl,
+      resource: {
+        resourceType: 'Encounter',
+        id: encounterResource.id,
+        ...(Array.isArray(encounterResource.identifier) && encounterResource.identifier.length ? { identifier: encounterResource.identifier } : {}),
+        // Strip account.reference — referenced Account resources are not in the bundle.
+        // Keep account.identifier to preserve the Fallnummer.
+        ...(encounterResource.account?.length ? {
+          account: encounterResource.account.map(({ reference: _ref, ...rest }) => rest).filter(a => Object.keys(a).length > 0)
+        } : {}),
+        status: encounterResource.status || 'unknown',
+        class: encounterResource.class || { system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'IMP' }
+      }
+    };
+    encounterRef = { reference: encFullUrl };
+  }
+
+  // --- Composition ---
+  const compFullUrl = `urn:uuid:${compUUID}`;
+  const qrFullUrl = `urn:uuid:${qrUUID}`;
+
   const comp = {
     resourceType: 'Composition',
     id: compUUID,
     status: 'final',
     identifier: { system: 'urn:ietf:rfc:3986', value: `urn:uuid:${compUUID}` },
     meta: { profile: ['https://gematik.de/fhir/isik/StructureDefinition/ISiKBerichtSubSysteme'] },
-    // Minimal type; ISiK profile would further constrain coding/system.
     type: {
       coding: [{ system: 'http://dvmd.de/fhir/CodeSystem/kdl', code: 'AM170103', display: 'Patientenfragebogen' }],
       text: 'AM170103 - Patientenfragebogen'
     },
     date: nowIso,
-    title: 'ISiK Bericht',
-    // Prefer internal reference to the Patient entry if available
-    ...((patientRefInBundle || subjectRef) ? { subject: (patientRefInBundle || subjectRef) } : {}),
+    title: input?.meta?.questionnaireTitle || 'ISiK Bericht',
+    ...(patientRef ? { subject: patientRef } : {}),
     ...(encounterRef ? { encounter: encounterRef } : {}),
     author: [ { display: authorDisplay } ],
     section: [
-      { title: 'QuestionnaireResponse', text: buildQRNarrative(qr), entry: [ { reference: qrRef } ] },
+      { title: 'QuestionnaireResponse', text: buildQRNarrative(qr), entry: [ { reference: qrFullUrl } ] },
       ...observations.map((obs, idx) => ({
         title: obsTitle(obs),
         text: buildObservationNarrative(obs),
-        entry: [ { reference: `Observation/${obsIds[idx]}` } ]
+        entry: [ { reference: `urn:uuid:${obsUUIDs[idx]}` } ]
       }))
     ]
   };
 
-  // Add document header narrative to Composition.text (summary per ISiK guidance)
+  // Add document header narrative to Composition.text
   try {
-    const subjectRefStrForHeader = (patientRefInBundle?.reference || subjectRef?.reference || (typeof subjectRef === 'string' ? subjectRef : '')) || '';
     comp.text = buildCompositionNarrative(comp, {
       patient: patientEntry?.resource || null,
-      subjectRefStr: subjectRefStrForHeader,
+      subjectRefStr: subjRefStr || '',
       authorDisplay
     });
   } catch {}
 
-  // Bundle entries: Composition first, then QR, then Observations, plus author Organization if created
-  const bundle = {
-    resourceType: 'Bundle',
-    type: 'document',
-    timestamp: nowIso,
-    identifier: { system: 'urn:ietf:rfc:3986', value: `urn:uuid:${uuidv4()}` },
-    meta: {
-      profile: ['https://gematik.de/fhir/isik/StructureDefinition/ISiKBerichtBundle']
-    },
-    entry: [
-      { fullUrl: compRef, resource: comp },
-      ...(patientEntry ? [patientEntry] : []),
-      { fullUrl: qrRef, resource: qr },
-      ...observations.map((obs, idx) => ({
-        fullUrl: `Observation/${obsIds[idx]}`,
-        resource: { ...(obs || {}), id: obsIds[idx] }
-      }))
-    ]
-  };
-
-  // Populate narrative text for QR and Observations (and optionally Composition)
+  // --- Prepare QR before bundle construction so the spread picks up all properties ---
   try {
+    // Ensure authored is set (ISiKFormularDaten: 1..1)
+    if (!qr.authored) qr.authored = nowIso;
     qr.text = buildQRNarrative(qr);
     // Add display extension to QuestionnaireResponse.questionnaire using meta.questionnaireTitle when available
     const qTitleFromMeta = input?.meta?.questionnaireTitle;
@@ -395,10 +405,34 @@ export function buildIsikBerichtsBundle(input) {
       prof.push('https://gematik.de/fhir/isik/StructureDefinition/ISiKFormularDaten');
     }
     qr.meta.profile = prof;
+    // Use absolute subject/encounter references where available
+    if (patientRef) qr.subject = patientRef;
+    if (encounterRef) qr.encounter = encounterRef;
   } catch {}
-  observations.forEach((obs, i) => {
+  observations.forEach((obs) => {
     try { obs.text = buildObservationNarrative(obs); } catch {}
   });
+
+  // --- Bundle ---
+  const bundle = {
+    resourceType: 'Bundle',
+    type: 'document',
+    timestamp: nowIso,
+    identifier: { system: 'urn:ietf:rfc:3986', value: `urn:uuid:${uuidv4()}` },
+    meta: {
+      profile: ['https://gematik.de/fhir/isik/StructureDefinition/ISiKBerichtBundle']
+    },
+    entry: [
+      { fullUrl: compFullUrl, resource: comp },
+      ...(patientEntry ? [patientEntry] : []),
+      ...(encounterEntry ? [encounterEntry] : []),
+      { fullUrl: qrFullUrl, resource: { ...qr, id: qrUUID } },
+      ...observations.map((obs, idx) => ({
+        fullUrl: `urn:uuid:${obsUUIDs[idx]}`,
+        resource: { ...(obs || {}), id: obsUUIDs[idx] }
+      }))
+    ]
+  };
 
   return bundle;
 }
